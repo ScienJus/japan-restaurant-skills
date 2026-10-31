@@ -5,6 +5,7 @@ import re
 from urllib.parse import urlsplit
 
 from .transport import CliError
+from .detail_info import practical_info
 
 JAPAN = timezone(timedelta(hours=9))
 
@@ -184,6 +185,8 @@ class PocketConcierge:
                 raise CliError('not_found', 'Course not listed for this restaurant.')
             result['courses'] = [item for item in courses if (not course or item['id'] == course) and (not meal or item['meal'] == meal.upper())]
         result['price_note'] = 'Course and restaurant fee statements may differ; retain both. No all-in total or date eligibility is inferred.'
+        if not only_courses:
+            result['practical_info'] = practical_info(venue, result['url'])
         return result
 
     def calendar(self, target, start=None, end=None):

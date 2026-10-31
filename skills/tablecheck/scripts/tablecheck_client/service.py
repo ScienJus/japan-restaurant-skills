@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 from bs4 import BeautifulSoup
 
 from .transport import CliError
+from .detail_info import practical_info
 
 UNIVERSE_JAPAN = '57e0b91744aea12988000001'
 
@@ -91,6 +92,16 @@ class TableCheck:
         result['policy'] = translated(venue.get('request_policy_translations'))
         result['policy_ja'] = translated(venue.get('request_policy_translations'), 'ja')
         result['seat_categories'] = [{'id': item.get('id'), **named(item)} for item in venue.get('service_categories') or []]
+        result['practical_info'] = practical_info(venue, result['booking_url'])
+        if not result['practical_info']['reservation']['evidence'] and venue.get('booking_page_mode') == 'v1':
+            try:
+                page = self.client.read('GET', f"/en/shops/{venue['slug']}/reserve")
+                result['practical_info'] = practical_info(venue, result['booking_url'], page)
+            except CliError as error:
+                result.update(coverage='partial', errors=[{'scope': 'practical_info', **error.as_dict()}])
+                if include_courses:
+                    result['courses'] = None
+                return result
         if include_courses:
             result['courses'] = self.courses(target, start, end, meal=meal, course=course)['items']
             result['course_window'] = {'from': start, 'to': end, 'scope': 'listed_conditions_not_slot_inventory'}

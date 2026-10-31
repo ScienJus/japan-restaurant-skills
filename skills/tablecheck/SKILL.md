@@ -28,6 +28,8 @@ Reuse the repository's Python environment and run `bin/tablecheck doctor` withou
 
 `RESTAURANT` accepts a public TableCheck restaurant URL or slug. `detail` accepts the same course filters as `courses`; its default menu window is today through 30 days later. Prices remain exact source strings, with currency and tax/service flags. Published course eligibility and a menu's `availability_status` do not prove a bookable time slot. Fine print can qualify a headline price; do not invent a final total or free cancellation.
 
+`detail.practical_info` groups reservation, payment and child-policy evidence from venue notices, plus the native booking entry and listed website. It uses the existing venue read; if notices are missing and a public v1 form is supported, it adds one form read, including with `--no-courses`. External links are not followed. Prose-only acceptance/payment flags stay null: a card guarantee or course payment type does not establish on-site payment methods. Listed links do not establish all booking channels, and child policies are not mixed-age inventory checks. A failed notice read preserves known details as partial and stops further detail reads.
+
 Inventory queries require `--people` (adults). Child and baby counts are zero; this version does not claim support for mixed-age parties. Party-size enumeration is not available. Use `--meal lunch` (11:00–15:00 local), `--meal dinner` (17:00–21:00), `--after/--before`, or one exact `--time`. Without time filters the CLI checks 00:00–23:59 using multiple anchors. These meal windows are query conventions, not restaurant opening hours. Elapsed same-day times are omitted. Do not silently choose a meal for the user.
 
 `--area` resolves a native TableCheck location suggestion and searches around its center; this is a radius, not a city's complete administrative boundary. Inspect the resolved name, type, parent area, center and radius. Ambiguous names require a more specific name or explicit coordinates; do not silently substitute another city.
@@ -69,7 +71,7 @@ Counts assume known slugs, no failures and no cache hits. N is the number of mis
 | --- | --- |
 | Name suggestions / one search page / cuisine catalog | 1 each |
 | Area name resolution | +1 native autocomplete read |
-| Details without / with menus | 1 / 2 |
+| Details without / with menus | 1 / 2; +1 public-form read when v1 notices are missing from the API |
 | Courses | 2 |
 | Venue calendar/slots/availability | 1 venue lookup + N native calendar reads; a covered month at one meal can need only 2 total |
 | Course/seat inventory | Venue + public form, plus menus when a course is selected, then W + S; the request budget bounds the total |

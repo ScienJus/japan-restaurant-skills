@@ -44,6 +44,8 @@ Shared command names do not imply identical options: TableCheck requires `--peop
 
 Pocket Concierge returns party-size bounds directly for each session; `--people` is optional for sessions and requires `--date` for search. Its calendar is a restaurant-level date signal. Session time filters match reported start times; source end times are not meal durations. Request-booking and waitlist results are distinct from instant-confirmation options.
 
+Each platform's `detail` includes `practical_info`: published reservation, payment and child-policy evidence, plus listed website/booking links. Missing information stays unknown; details do not verify seats, child eligibility or every possible booking channel. These fields reuse existing requests; TableCheck adds one public-form read when v1 notices are missing from its API.
+
 ## Local setup
 
 Requires Python 3.10+ (3.12+ recommended), HTTPX, Beautiful Soup, and jpholiday. No Node.js or browser dependency.

@@ -116,6 +116,8 @@ bin/tabelog slots 17013984 --date 2026-12-01
 
 Commands emit JSON except help. Inspect `status`, `data`, coverage, `unverified`, `error`, `usage`, and `trace`. Exit codes are 0 for success, 3 for partial results, and 1 for errors. Successful execution does not imply every field or every restaurant was verified.
 
+`detail.practical_info` groups `reservation`, `payment`, `children` and `links`, retaining source wording and URLs alongside the original `info`. Recognized reservation headlines and standalone payment flags are normalized; missing or ambiguous values stay null. Read all evidence, including qualifiers and remarks. Card rejection does not establish cash-only payment. Listed booking entries are not slot checks, websites are not verified booking channels, and child policies are not mixed-age inventory checks. These fields add no requests and do not follow external links.
+
 Requests are serial with default 1–2.5-second same-site gaps. Search stops once enough matches are found; Hyakumeiten adds one catalog read, and range availability uses one calendar read plus candidate-date checks. `usage` reports actual request starts, time, response-body bytes, and dependencies. See [costs](references/costs.md) for formulas and measurement scope.
 
 ## Agent references

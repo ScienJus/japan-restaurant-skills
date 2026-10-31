@@ -36,6 +36,8 @@ Date/party search uses native filters; `--people` requires `--date` for search. 
 
 Course prices distinguish `per_guest` and `fixed_per_group`; `all_in_total` is null. Preserve course notes and `reservation_terms` together, including contradictions about tax or service fees. A listed course does not establish date eligibility, seats or a final total.
 
+`detail.practical_info` groups reservation, payment and child-policy evidence from venue terms/FAQ, with the native booking entry. It reuses the existing detail read, including with `--no-courses`. Prose-only acceptance/payment flags stay null; `transactions_allowed` is not interpreted as on-site card acceptance. Read age/meal qualifiers verbatim. No child eligibility, extra booking channels or date-specific seats are inferred from these details.
+
 ## Inventory interpretation
 
 - A `ReservableAvailability` session with `booking_mode=instant_confirmation` is a public instant-confirmation option, not an existing reservation. `reservation_request` requires the restaurant's later confirmation. A `WaitlistableAvailability` is only a waitlist signal; its session ID is null. Keep all three distinct.

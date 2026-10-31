@@ -9,6 +9,7 @@ from urllib.parse import urljoin, urlsplit, parse_qs
 from bs4 import BeautifulSoup
 
 from .core import BASE, RESTAURANT_PATH, CliError, point_value
+from .detail_info import practical_info
 
 
 def soup(value):
@@ -206,6 +207,7 @@ def parse_detail(body, ref, url):
               "price_range": ld.get("priceRange", "").replace("～", "~") or None, "phone": ld.get("telephone"),
               "hours": parse_hours(doc), "info": info, "awards": parse_awards(doc, url),
               "reservation_policy": [r for r in info if re.search(r"reserv|予約", r["label"], re.I)],
+              "practical_info": practical_info(doc, info, url),
               "data_source": "server-rendered HTML and Restaurant JSON-LD; no verified standalone detail API"}
     try:
         geo = ld.get("geo", {})
