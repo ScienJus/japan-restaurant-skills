@@ -2,6 +2,7 @@
 from datetime import datetime, timedelta, timezone
 import json
 import unittest
+from unittest.mock import patch
 
 import httpx
 
@@ -31,6 +32,12 @@ def calendar(day, available=False):
 
 
 class TableCheckTests(unittest.TestCase):
+    def setUp(self):
+        clock = patch('tablecheck_client.service.datetime', wraps=datetime)
+        frozen = clock.start()
+        frozen.now.return_value = datetime.fromisoformat('2026-10-31T12:00:00+09:00')
+        self.addCleanup(clock.stop)
+
     def test_calendar_reuses_one_response_for_a_month_and_filters_alternatives(self):
         def handler(request):
             if '/shops/' in request.url.path:
@@ -86,7 +93,10 @@ class TableCheckTests(unittest.TestCase):
         transport.close()
 
     def test_denial_stops_further_requests_and_reports_no_empty_inventory(self):
-        transport = client(lambda request: httpx.Response(429, headers={'Retry-After': '120'}))
+        class DeniedBody(httpx.SyncByteStream):
+            def __iter__(self):
+                raise AssertionError('A denial must stop the command before consuming its body.')
+        transport = client(lambda request: httpx.Response(429, headers={'Retry-After': '120'}, stream=DeniedBody()))
         for _ in range(2):
             with self.assertRaises(CliError) as caught:
                 transport.read('GET', '/v2/cuisines')
@@ -168,14 +178,104 @@ class TableCheckTests(unittest.TestCase):
                 return response({'menu_items': [COURSE]})
             body = json.loads(request.content)
             return response({'availability_calendar': {'type': 'success', 'time_zone': 'Asia/Tokyo',
-                'data': {'2026-12-01': calendar('2026-12-01', body['shop_id'] != '1'*24)}, 'closed_dates': []}})
+                'data': {day: calendar(day, body['shop_id'] != '1'*24) for day in ('2026-12-01', '2026-12-02')}, 'closed_dates': []}})
         transport = client(handler)
         result = TableCheck(transport).search((36.5, 136.5), 1000, [], None, None, 2, 1,
-            '2026-12-01', '2026-12-01', 2, '17:00', '21:00', True, 'dinner')
+            '2026-12-01', '2026-12-02', 2, '17:00', '21:00', True, 'dinner')
         self.assertEqual([item['slug'] for item in result['items']], ['second'])
         self.assertTrue(result['limit_reached'])
         self.assertNotIn('/v2/shops/third', queried)
         self.assertEqual(transport.requests, 6)
+        transport.close()
+
+    def test_native_search_reuses_quarter_hour_index_and_only_fetches_selected_menus(self):
+        shops = [{**SHOP, 'slug': name, '_id': str(index)*24,
+                  'availability': [] if index == 1 else ['2026-12-01T18:15:00+09:00']}
+                 for index, name in enumerate(('first', 'second', 'third'), 1)]
+        def handler(request):
+            if request.url.path.endswith('/shop_search'):
+                self.assertEqual(request.url.params['date'], '2026-12-01')
+                self.assertEqual(request.url.params['num_people'], '2')
+                self.assertNotIn('time', request.url.params)
+                return response({'shops': shops, 'meta': {'last_page': True}})
+            self.assertTrue(request.url.path.endswith('/menu_items'))
+            self.assertEqual(json.loads(request.content)['shop_id'], '2'*24)
+            return response({'menu_items': [COURSE]})
+        transport = client(handler)
+        result = TableCheck(transport).search((36.5, 136.5), 1000, [], None, None, 2, 1,
+            '2026-12-01', '2026-12-01', 2, '17:00', '21:00', True, 'dinner')
+        self.assertEqual([item['slug'] for item in result['items']], ['second'])
+        self.assertEqual(result['items'][0]['availability']['days'][0]['offered_times'], ['18:15'])
+        self.assertEqual(result['availability_verification'], 'search_index_only')
+        self.assertEqual(transport.requests, 2)
+        transport.close()
+
+    def test_city_search_resolves_native_city_and_keeps_exact_time_and_radius_scope(self):
+        def location(kind, name):
+            return {'text_translations': [{'locale': 'ja', 'translation': name}],
+                    'payload': {'location_type': kind, 'term': name, 'geo': {'lat': 36.5, 'lon': 136.5}}}
+        def handler(request):
+            if request.url.path.endswith('/autocomplete'):
+                return response({'shops': [], 'locations': [location('city', '金沢市'), location('ward', '金沢区')]})
+            self.assertEqual(request.url.params['geo_distance'], '10000')
+            return response({'shops': [{**SHOP, 'availability': ['2099-12-01T12:15:00+09:00']}], 'meta': {'last_page': True}})
+        transport = client(handler)
+        result = run(['search', '--area', '金沢', '--date', '2099-12-01', '--people', '2', '--time', '12:15'],
+                     create_client=lambda **_: transport)
+        self.assertEqual(result['output']['status'], 'ok')
+        data = result['output']['data']
+        self.assertEqual(data['location']['term'], '金沢市')
+        self.assertEqual(data['geographic_scope'], 'center_radius_not_administrative_boundary')
+        self.assertEqual(data['items'][0]['availability']['days'][0]['offered_times'], ['12:15'])
+        self.assertEqual(transport.requests, 2)
+
+    def test_native_search_never_promotes_wrong_date_index_to_available(self):
+        transport = client(lambda request: response({'shops': [{**SHOP, 'availability': ['2026-12-02T18:00:00+09:00']}],
+                                                    'meta': {'last_page': True}}))
+        result = TableCheck(transport).search((36.5, 136.5), 1000, [], None, None, 1, 5, '2026-12-01', '2026-12-01', 2)
+        self.assertEqual(result['coverage'], 'partial')
+        self.assertEqual(result['items'], [])
+        self.assertEqual(result['errors'][0]['code'], 'unexpected_response')
+        transport.close()
+
+    def test_known_matches_do_not_hide_partial_candidate_inventory(self):
+        transport = client(lambda request: response({'shops': [SHOP], 'meta': {'last_page': True}}))
+        app = TableCheck(transport)
+        inventory = {'coverage': 'partial', 'days': [{'date': '2026-12-01', 'offered_times': ['18:00']}],
+                     'errors': [{'code': 'request_budget'}]}
+        with patch.object(app, 'availability', return_value=inventory):
+            result = app.search((36.5, 136.5), 1000, [], None, None, 1, 1, '2026-12-01', '2026-12-02', 2)
+        self.assertEqual(len(result['items']), 1)
+        self.assertEqual(result['coverage'], 'partial')
+        self.assertEqual(result['errors'][0]['code'], 'partial_inventory')
+        transport.close()
+
+    def test_elapsed_today_slots_are_filtered_from_index_calendar_and_form(self):
+        def handler(request):
+            if '/v2/shops/' in request.url.path:
+                return response({'shops': [SHOP]})
+            if request.url.path.endswith('/reserve'):
+                return httpx.Response(200, text='<input name="reservation[service_category]" value="private">')
+            if request.url.path.endswith('/timetable'):
+                return response({'queried_date': '2026-12-01', 'data': {'slots': {'2026-12-01': {
+                    '1796115600': {'available': True}, '1796117400': {'available': True}}}}})
+            if request.url.path.endswith('/available'):
+                self.assertEqual(request.url.params['reservation[start_at_epoch]'], '1796117400')
+                return response({'status': 'success'})
+            values = calendar('2026-12-01', True)
+            values['2026-12-01T09:30:00+00:00']['is_available'] = True
+            return response({'availability_calendar': {'type': 'success', 'time_zone': 'Asia/Tokyo',
+                'data': {'2026-12-01': values}, 'closed_dates': []}})
+        transport = client(handler)
+        app = TableCheck(transport)
+        with patch('tablecheck_client.service.datetime', wraps=datetime) as clock:
+            clock.now.return_value = datetime.fromisoformat('2026-12-01T18:05:00+09:00')
+            shop = {**SHOP, 'availability': ['2026-12-01T18:00:00+09:00', '2026-12-01T18:30:00+09:00']}
+            results = [app.indexed_availability(shop, '2026-12-01', 2, '17:00', '21:00'),
+                       app.availability(SHOP['slug'], '2026-12-01', '2026-12-01', 2, '17:00', '21:00'),
+                       app.availability(SHOP['slug'], '2026-12-01', '2026-12-01', 2, '17:00', '21:00', seat='Private')]
+        for result in results:
+            self.assertEqual(result['days'][0]['offered_times'], ['18:30'])
         transport.close()
 
     def test_foreign_urls_and_write_routes_are_rejected_without_network(self):

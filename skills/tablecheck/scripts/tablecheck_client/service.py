@@ -47,6 +47,11 @@ def dates(start, end):
     return [(first+timedelta(days=i)).isoformat() for i in range((last-first).days+1)]
 
 
+def not_elapsed_today(at):
+    now = datetime.now(at.tzinfo)
+    return at.date() != now.date() or at > now
+
+
 def booking_url(venue, day=None, clock=None, people=None):
     slug = venue['slug']
     mode = venue.get('booking_page_mode')
@@ -98,9 +103,11 @@ class TableCheck:
         except (KeyError, TypeError, ValueError):
             raise CliError('unexpected_response', 'Venue time zone is missing or invalid.') from None
 
-    def courses(self, target, start, end, meal=None, course=None):
+    def courses(self, target, start, end, meal=None, course=None, _venue=None):
         wanted = dates(start, end)
-        venue = self.venue(target)
+        venue = _venue if _venue is not None else self.venue(target)
+        if not isinstance(venue.get('_id'), str) or not re.fullmatch(r'[0-9a-f]{24}', venue['_id']):
+            raise CliError('unexpected_response', 'Menu lookup requires a valid public shop ID.')
         tz = self.location(venue)
         body = {'shop_id': venue['_id'], 'locale': 'en', 'has_price': True,
                 'date_min': datetime.combine(date.fromisoformat(start), time(), tzinfo=tz).astimezone(timezone.utc).isoformat(),
@@ -156,7 +163,56 @@ class TableCheck:
                            'name': translated(item.get('text_translations')) or translated(item.get('text_translations'), 'ja') or item.get('text'),
                            'name_ja': translated(item.get('text_translations'), 'ja'),
                            'location_name': translated((item.get('payload') or {}).get('location_name_translations'))}
-                          for item in array(value, 'shops')]}
+                          for item in array(value, 'shops')],
+                'locations': [{**named({'name_translations': item.get('text_translations')}),
+                               'type': item.get('payload', {}).get('location_type'), 'term': item.get('payload', {}).get('term'),
+                               'area': translated(item.get('payload', {}).get('area_translations')),
+                               'area_ja': translated(item.get('payload', {}).get('area_translations'), 'ja'),
+                               'coordinates': item.get('payload', {}).get('geo')}
+                              for item in value.get('locations', [])]}
+
+    def resolve_area(self, query):
+        places = [place for place in self.suggest(query)['locations'] if place['type'] in ('city', 'ward', 'prefecture')]
+        exact = [place for place in places if query.casefold() in
+                 [str(place.get(field) or '').casefold() for field in ('name', 'name_ja', 'term')]]
+        candidates = exact or places
+        cities = [place for place in candidates if place['type'] == 'city']
+        if len(cities) == 1:
+            candidates = cities
+        if len(candidates) != 1:
+            raise CliError('ambiguous_location' if candidates else 'not_found',
+                           'Use a more specific city/area name or explicit --near coordinates.', candidates=candidates)
+        place = candidates[0]
+        point = place.get('coordinates') or {}
+        try:
+            lat, lon = float(point['lat']), float(point['lon'])
+            if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                raise ValueError()
+        except (KeyError, TypeError, ValueError):
+            raise CliError('unexpected_response', 'Native location lacks valid coordinates.') from None
+        return place, (lat, lon)
+
+    def indexed_availability(self, shop, day, people, after, before):
+        values = array(shop, 'availability')
+        tz = self.location(shop)
+        times = set()
+        for value in values:
+            try:
+                at = datetime.fromisoformat(value.replace('Z', '+00:00'))
+                if at.tzinfo is None:
+                    raise ValueError()
+                local = at.astimezone(tz)
+                if local.date().isoformat() != day or local.second or local.microsecond:
+                    raise ValueError()
+            except (ValueError, TypeError, AttributeError):
+                raise CliError('unexpected_response', 'Search index returned an invalid or mismatched slot timestamp.') from None
+            clock = local.strftime('%H:%M')
+            if after <= clock <= before and not_elapsed_today(local):
+                times.add(clock)
+        return {'people': people, 'scope': 'venue_search_index', 'verification': 'search_index_only',
+                'course_linked': False, 'seat_linked': False,
+                'index_created_min': shop.get('availability_created_min'), 'index_created_max': shop.get('availability_created_max'),
+                'days': [{'date': day, 'status': 'available_hint' if times else 'no_indexed_match', 'offered_times': sorted(times)}]}
 
     def availability(self, target, start, end, people, after='00:00', before='23:59', course=None, seat=None):
         wanted = dates(start, end)
@@ -217,7 +273,7 @@ class TableCheck:
                                     raise ValueError()
                                 minute = local.hour*60+local.minute
                                 observed.append(minute)
-                                if available and lo <= minute <= hi:
+                                if available and lo <= minute <= hi and not_elapsed_today(local):
                                     row['offered_times'].append(local.strftime('%H:%M'))
                             except (ValueError, TypeError, AttributeError):
                                 complete = False
@@ -235,7 +291,7 @@ class TableCheck:
                                 if alternate.tzinfo is None:
                                     raise ValueError()
                                 local = alternate.astimezone(tz)
-                                if local.date().isoformat() == day and after <= local.strftime('%H:%M') <= before:
+                                if local.date().isoformat() == day and after <= local.strftime('%H:%M') <= before and not_elapsed_today(local):
                                     row['offered_times'].append(local.strftime('%H:%M'))
                             except (ValueError, TypeError):
                                 pass
@@ -253,8 +309,9 @@ class TableCheck:
             row['booking_url'] = booking_url(venue, row['date'], row['offered_times'][0] if row['offered_times'] else None, people)
         return {'restaurant': venue_summary(venue), 'people': people, 'from': start, 'to': end, 'after': after, 'before': before,
                 'scope': 'venue', 'course_linked': False, 'seat_linked': False, 'days': list(rows.values()),
+                'coverage_basis': 'returned_calendar_grid_and_closed_dates',
                 'coverage': 'complete' if all(row['complete'] for row in rows.values()) and not failures else 'partial',
-                'errors': failures, 'note': 'Unavailable means no offered slot in the checked window; unreleased inventory cannot always be distinguished.'}
+                'errors': failures, 'note': 'Unavailable means no offered slot on the returned calendar grid; other start times may exist. Unreleased inventory cannot always be distinguished.'}
 
     def course_any_seat(self, venue, wanted, people, after, before, course):
         menus = self.courses(venue['slug'], wanted[0], wanted[-1], course=course)['items']
@@ -369,7 +426,7 @@ class TableCheck:
                             if local.date().isoformat() != slot_day or not isinstance(slot, dict) or type(slot.get('available')) is not bool:
                                 raise ValueError()
                             clock = local.strftime('%H:%M')
-                            if after <= clock <= before and slot['available']:
+                            if after <= clock <= before and slot['available'] and not_elapsed_today(local):
                                 parsed.append((epoch, clock))
                         except (ValueError, TypeError, OverflowError, OSError):
                             complete = False
@@ -406,10 +463,19 @@ class TableCheck:
                 'coverage': 'complete' if all(row['complete'] for row in rows.values()) and not failures else 'partial', 'errors': failures,
                 'note': 'Positive filtered timetable slots are confirmed with a second read. No reservation or hold is created.'}
 
-    def search(self, near, radius, cuisines, budget_min, budget_max, pages, limit, start=None, end=None, people=None, after='00:00', before='23:59', with_courses=False, meal=None):
+    def search(self, near, radius, cuisines, budget_min, budget_max, pages, limit, start=None, end=None, people=None, after='00:00', before='23:59', with_courses=False, meal=None, area=None):
+        location = None
+        if area:
+            location, near = self.resolve_area(area)
+        radius = radius if radius is not None else 10000 if area else 1000
         lat, lon = near
+        native_day = bool(start and start == end)
         params = {'geo_latitude': lat, 'geo_longitude': lon, 'geo_distance': radius, 'shop_universe_id': UNIVERSE_JAPAN,
                   'locale': 'en', 'venue_type': 'tc', 'service_mode': 'dining', 'sort_by': 'distance', 'include_ids': 'true', 'per_page': min(50, max(10, limit))}
+        if native_day:
+            # Omitting time returns the day's indexed slots. Apply exact-time or
+            # meal bounds locally; upstream meal preferences are not exact times.
+            params.update(date=start, num_people=people, availability_format='datetime')
         if cuisines:
             params['cuisines[]'] = cuisines
         if budget_min is not None:
@@ -434,8 +500,11 @@ class TableCheck:
                         continue
                     geocode = shop.get('geocode') or {}
                     try:
-                        phi1, phi2 = math.radians(lat), math.radians(float(geocode['lat']))
-                        delta = math.radians(float(geocode['lon'])-lon)
+                        shop_lat, shop_lon = float(geocode['lat']), float(geocode['lon'])
+                        if not (-90 <= shop_lat <= 90 and -180 <= shop_lon <= 180):
+                            raise ValueError()
+                        phi1, phi2 = math.radians(lat), math.radians(shop_lat)
+                        delta = math.radians(shop_lon-lon)
                         distance = 6371000*2*math.asin(min(1, math.sqrt(math.sin((phi2-phi1)/2)**2+math.cos(phi1)*math.cos(phi2)*math.sin(delta/2)**2)))
                     except (KeyError, TypeError, ValueError):
                         continue
@@ -451,15 +520,16 @@ class TableCheck:
                     item = venue_summary(shop)
                     item['distance_m'] = round(distance)
                     if start:
-                        inventory = self.availability(slug, start, end, people, after, before)
+                        inventory = (self.indexed_availability(shop, start, people, after, before) if native_day else
+                                     self.availability(slug, start, end, people, after, before))
+                        if inventory.get('coverage') == 'partial':
+                            failures.append({'restaurant': slug, 'code': 'partial_inventory', 'errors': inventory.get('errors', [])})
                         if not any(row['offered_times'] for row in inventory['days']):
-                            if inventory['coverage'] == 'partial':
-                                failures.append({'restaurant': slug, 'code': 'unknown_inventory'})
                             continue
                         item['availability'] = inventory
                     if with_courses:
                         first = start or datetime.now(ZoneInfo('Asia/Tokyo')).date().isoformat()
-                        item['courses'] = self.courses(slug, first, end or first, meal=meal)['items']
+                        item['courses'] = self.courses(slug, first, end or first, meal=meal, _venue=shop)['items']
                     results.append(item)
                     if len(results) >= limit:
                         break
@@ -476,6 +546,9 @@ class TableCheck:
             except CliError as error:
                 failures.append(error.as_dict())
                 break
-        return {'items': results, 'radius_m': radius, 'sort': 'distance', 'budget_basis': 'venue_dinner_average',
+        return {'items': results, 'radius_m': radius, 'center': {'lat': lat, 'lon': lon}, 'location': location,
+                'geographic_scope': 'center_radius_not_administrative_boundary',
+                'availability_verification': 'search_index_only' if native_day else 'venue_calendar' if start else 'not_queried',
+                'sort': 'distance', 'budget_basis': 'venue_dinner_average',
                 'coverage': 'partial' if failures else 'complete' if exhausted else 'limited', 'errors': failures,
                 'limit_reached': len(results) >= limit, 'pages_read': page+1}

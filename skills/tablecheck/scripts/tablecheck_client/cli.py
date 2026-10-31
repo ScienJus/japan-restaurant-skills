@@ -41,7 +41,7 @@ def run(argv, create_client=Client):
                     if args.command == 'detail' else app.courses(args.target, args.start, args.end, args.meal, args.course))
         elif args.command == 'search':
             data = app.search(args.near, args.radius_m, args.cuisine, args.budget_min, args.budget_max, args.pages, args.limit,
-                              args.start, args.end, args.people, args.after, args.before, args.with_courses, args.meal)
+                              args.start, args.end, args.people, args.after, args.before, args.with_courses, args.meal, area=args.area)
         else:
             data = app.availability(args.target, args.start, args.end, args.people, args.after, args.before, args.course, args.seat)
             if args.command == 'calendar':

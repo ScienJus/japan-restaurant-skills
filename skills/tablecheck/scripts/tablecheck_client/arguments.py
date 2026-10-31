@@ -1,6 +1,7 @@
 """Command-local argparse options matching the Tabelog CLI where meaningful."""
 import argparse
 from datetime import date, datetime, timedelta
+import json
 import math
 from zoneinfo import ZoneInfo
 
@@ -92,7 +93,7 @@ def parse_arguments(argv):
         child.add_argument('--after', type=time_value)
         child.add_argument('--before', type=time_value)
 
-    command('suggest', 'Find restaurants by name.', 'QUERY')
+    command('suggest', 'Find restaurants and native location suggestions by name.', 'QUERY')
     command('cuisines', 'List native cuisine keys and labels.')
     for name in ('detail', 'courses'):
         child = command(name, 'Read restaurant details and courses.' if name == 'detail' else 'Read courses and their listed conditions.', 'RESTAURANT_URL_OR_SLUG')
@@ -101,9 +102,11 @@ def parse_arguments(argv):
         child.add_argument('--course', help='exact course ID from this restaurant')
         if name == 'detail':
             child.add_argument('--no-courses', action='store_true')
-    child = command('search', 'Find nearby restaurants in distance order; optionally verify date/party inventory.')
-    child.add_argument('--near', type=coordinates, required=True)
-    child.add_argument('--radius-m', type=bounded(1, 50000), default=1000)
+    child = command('search', 'Find restaurants and native single-date availability in a location radius.')
+    location = child.add_mutually_exclusive_group(required=True)
+    location.add_argument('--near', type=coordinates)
+    location.add_argument('--area', help='native city/area suggestion; searches around its center, not administrative boundaries')
+    child.add_argument('--radius-m', type=bounded(1, 50000), help='default: 1000 with --near, 10000 with --area')
     child.add_argument('--cuisine', action='append', default=[])
     child.add_argument('--budget-min', type=bounded(0, 100000000, True))
     child.add_argument('--budget-max', type=bounded(0, 100000000, True))
@@ -124,7 +127,6 @@ def parse_arguments(argv):
         child.add_argument('--seat', help='exact seat category ID or its English/Japanese name')
         clock(child)
     child = command('source', 'Read an allowed public endpoint for diagnostics.', 'READ_ENDPOINT_PATH')
-    import json
     child.add_argument('--params', type=json.loads)
     child.add_argument('--body', type=json.loads)
     command('doctor', 'Check dependencies without network requests.')

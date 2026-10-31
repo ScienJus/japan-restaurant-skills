@@ -84,12 +84,6 @@ class Client:
         try:
             with self.session.stream(method, url, params=params, json=body, headers=headers, timeout=self.timeout) as response:
                 entry['http_status'] = response.status_code
-                data = bytearray()
-                for part in response.iter_bytes():
-                    self.bytes += len(part)
-                    if len(data) + len(part) > 8*1024*1024 or time.monotonic()-started > self.timeout:
-                        raise CliError('response_limit', 'Response exceeded the size or time limit.')
-                    data.extend(part)
                 if response.status_code in (401, 403, 429, 503) or response.headers.get('Retry-After'):
                     details = {'http_status': response.status_code, 'next_action': 'Stop; honor the server cooldown. Do not switch identities.'}
                     retry = response.headers.get('Retry-After')
@@ -105,6 +99,12 @@ class Client:
                     raise self.blocked
                 if response.status_code != 200:
                     raise CliError('http_error', f'HTTP {response.status_code}; data is unknown.')
+                data = bytearray()
+                for part in response.iter_bytes():
+                    self.bytes += len(part)
+                    if len(data) + len(part) > 8*1024*1024 or time.monotonic()-started > self.timeout:
+                        raise CliError('response_limit', 'Response exceeded the size or time limit.')
+                    data.extend(part)
                 text = data.decode('utf-8', errors='replace')
                 if re.search(r'<title>\s*(?:Just a moment|Attention Required)|cf-challenge|challenge-form', text, re.I):
                     self.blocked = CliError('verification_required', 'Upstream verification required; stop this command.')

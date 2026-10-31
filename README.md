@@ -12,23 +12,29 @@ Give an agent this repository URL or a local checkout, followed by a request suc
 
 The agent needs terminal access, Python 3.10+, and outbound network access. It can clone or download the repository and use the CLI directly; global skill installation is optional. Ordinary queries require no API key, account, or browser. A chat interface without code execution cannot run the CLI from a URL alone.
 
-To install just the Tabelog skill in Codex, ask:
+To install a standalone platform skill in Codex, ask for either:
 
 > Use $skill-installer to install https://github.com/ScienJus/japan-restaurant-skills/tree/main/skills/tabelog.
 
-Then follow the [standalone setup](skills/tabelog/README.md#installation) to install its Python dependencies.
+> Use $skill-installer to install https://github.com/ScienJus/japan-restaurant-skills/tree/main/skills/tablecheck.
+
+Then install its Python dependencies following the [Tabelog setup](skills/tabelog/README.md#installation) or [TableCheck setup](skills/tablecheck/SKILL.md#setup).
 
 ## Available skills
 
 | Skill | Status | Capabilities |
 | --- | --- | --- |
 | [Tabelog](skills/tabelog/SKILL.md) | Available; main integration | Restaurant search, details, courses, reviews, awards, and online reservation availability |
-| [TableCheck](skills/tablecheck/SKILL.md) | Available; first version | Restaurant discovery, courses, multi-day availability, and course/seat combinations on public v1 booking forms |
+| [TableCheck](skills/tablecheck/SKILL.md) | Available; first version | Restaurant discovery by area or coordinates, native single-day availability search, courses, multi-day availability, and course/seat combinations on public v1 booking forms |
 
 - [Tabelog guide and acknowledgments](skills/tabelog/README.md): installation, commands, examples, and limitations.
-- [Skill entry point](skills/tabelog/SKILL.md): agent workflows, evidence, and access rules.
-- [Query costs](skills/tabelog/references/costs.md): request-count formulas, dependencies, and measurement scope.
-- [TableCheck guide](skills/tablecheck/SKILL.md): commands, anonymous request policy, costs and acknowledgments. Install the standalone skill from `skills/tablecheck` using the same skill-installer flow if needed.
+- [Tabelog skill entry point](skills/tabelog/SKILL.md): agent workflows, evidence, and access rules.
+- [Tabelog query costs](skills/tabelog/references/costs.md): request-count formulas, dependencies, and measurement scope.
+- [TableCheck guide](skills/tablecheck/SKILL.md): commands, anonymous request policy, costs and acknowledgments.
+
+TableCheck's `--area` searches around a native location's center, not an administrative boundary. Single-day searches return indexed time-slot hints for the requested party; use `availability` on a chosen restaurant for a separate venue or course/seat check. Course/seat checks currently require a public v1 booking form.
+
+Shared command names do not imply identical options: TableCheck requires `--people` for inventory and uses exact `--time`; Tabelog can discover party sizes and uses `--time` as an upstream anchor. Use each command's `--help` for its parameters.
 
 ## Local setup
 
@@ -45,8 +51,13 @@ python3 -m venv .venv
 bin/tabelog doctor
 bin/tablecheck doctor
 bin/tabelog search --station 金沢駅 --radius-m 1000 --min-rating 3.5 --meal lunch
-bin/tablecheck suggest 海老亭別館
+bin/tablecheck search --area 金沢 --radius-m 10000 \
+  --date 2026-12-02 --people 2 --limit 5
 ```
+
+Replace the example date with a current or future trip date. The installed commands `tabelog` and `tablecheck` are also available inside the virtual environment.
+
+Platform instructions and implementations live in `skills/<platform>/`; `bin/` contains source-tree launchers. `tests/` holds offline behavior checks and necessary fixtures, and `scripts/check_submission.py` checks the publishable file set. No background server or shared browser runtime is needed.
 
 ## Development
 
@@ -68,7 +79,7 @@ GitHub Actions runs the offline checks on pushes and pull requests. It does not 
 
 This project is provided for learning, research, and reference. Users are responsible for checking and following applicable laws, platform terms, published crawling rules, and privacy and intellectual-property requirements. It does not authorize access to restricted content or use of third-party data beyond the rights granted by its owners. Do not use it for bulk harvesting, disruptive traffic, or bypassing access restrictions. The project is independent of, and is not endorsed by, the platforms it queries.
 
-The current CLI is designed to reduce unnecessary requests and service load through serial requests, default 1–2.5-second same-site delays, per-command caching and request limits, early stopping once enough restaurants match, and calendar screening before candidate time-slot queries. It stops further reads on access denials, challenges, rate limits, and service-unavailable responses. These measures reduce traffic; they do not guarantee zero impact, continued access, or protection from blocking. Limits apply within each command, so users and agents must also coordinate separate commands and respect server cooldowns. See the [request policy](skills/tabelog/references/access.md#request-policy).
+The CLIs are designed to reduce unnecessary requests and service load through serial requests, default 1–2.5-second same-site delays, per-command caching and request limits, early stopping once enough restaurants match, native batch search, and calendar reuse or screening before candidate time-slot queries. They stop further reads on access denials, challenges, rate limits, and service-unavailable responses. These measures reduce traffic; they do not guarantee zero impact, continued access, or protection from blocking. Limits apply within each command, so users and agents must also coordinate separate commands and respect server cooldowns. See the [Tabelog request policy](skills/tabelog/references/access.md#request-policy) and [TableCheck request policy](skills/tablecheck/SKILL.md#request-policy-and-interpretation).
 
 All currently implemented CLI queries work without personal account credentials and do not import a user's login cookies or browser profile. If a future feature or browser-assisted workflow requires a user identity, the tool or agent must first explain the platform and account involved, the purpose and actions, which credentials or session data would be used, and the account/privacy risks. It must obtain the user's explicit consent for that scope **before accessing, importing, reusing, or transmitting credentials, login cookies, tokens, or an authenticated session**. General permission to search for restaurants does not authorize account access. Credentials and session data must not be included in logs, reports, commits, or shared captures.
 

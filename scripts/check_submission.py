@@ -137,9 +137,12 @@ def main():
         if scope == 'git_candidates' and (rel.parts[0] == 'research' or any(p in LOCAL_DIRS or p.endswith('.egg-info') for p in rel.parts)):
             issues.append({'file': rel.as_posix(), 'kind': 'local_only_file_tracked'})
         issues.extend(inspect_file(path))
-    if (ROOT/'requirements.lock').read_bytes() != (ROOT/'skills/tabelog/scripts/requirements.txt').read_bytes():
-        issues.append({'kind': 'standalone_skill_lock_mismatch'})
+    root_lock = (ROOT/'requirements.lock').read_text(encoding='utf-8')
+    locks = {'tabelog': root_lock, 'tablecheck': '\n'.join(line for line in root_lock.splitlines() if not line.startswith('jpholiday=='))+'\n'}
     for platform in ('tabelog', 'tablecheck'):
+        skill_lock = ROOT/'skills'/platform/'scripts/requirements.txt'
+        if not skill_lock.is_file() or skill_lock.read_text(encoding='utf-8') != locks[platform]:
+            issues.append({'kind': 'standalone_skill_lock_mismatch', 'platform': platform})
         skill_license = ROOT/'skills'/platform/'LICENSE'
         if not skill_license.is_file() or skill_license.read_bytes() != (ROOT/'LICENSE').read_bytes():
             issues.append({'kind': 'standalone_skill_license_mismatch', 'platform': platform})
