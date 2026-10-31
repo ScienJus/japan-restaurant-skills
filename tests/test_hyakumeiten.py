@@ -7,11 +7,11 @@ from pathlib import Path
 import unittest
 from urllib.parse import parse_qs, urlsplit
 
-from client.cli import run
-from client.core import CliError
-from client.hyakumeiten import CATALOG_URL, FILTER_KEY, parse_categories
-from client.service import Tabelog
-from client.transport import Client
+from tabelog_client.cli import run
+from tabelog_client.core import CliError
+from tabelog_client.hyakumeiten import CATALOG_URL, FILTER_KEY, parse_categories
+from tabelog_client.service import Tabelog
+from tabelog_client.transport import Client
 from test_search import make_client, map_page, marker
 
 FIXTURES = Path(__file__).parent / 'fixtures'

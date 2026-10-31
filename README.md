@@ -2,6 +2,8 @@
 
 Agent skills and CLI tools for finding Japanese restaurants, reading reviews, and checking online reservation dates and times. Tabelog is the main integration; TableCheck supports anonymous discovery, courses and availability. OMAKASE may be added as a separate skill in the future. Current operations are read-only and do not submit reservations.
 
+If you find this project useful, please consider giving it a [star on GitHub](https://github.com/ScienJus/japan-restaurant-skills) to show your support.
+
 Read the [responsible-use and account-risk notice](#responsible-use-and-account-risk) before making queries or authorizing access to an account.
 
 ## Use with an agent
@@ -73,7 +75,7 @@ Repository documentation and skill metadata are maintained in English only. Japa
 
 `research/`, virtual environments, caches, and build outputs are ignored. Tests use the necessary samples in `tests/fixtures/` and do not require development captures.
 
-GitHub Actions runs the offline checks on pushes and pull requests. It does not query restaurant platforms.
+GitHub Actions builds and installs the wheel, runs the offline tests and submission checks, and checks both installed commands and source launchers on pushes and pull requests. It does not query restaurant platforms.
 
 ## Responsible use and account risk
 
@@ -89,4 +91,4 @@ This notice describes the project's intended use and operating rules; it does no
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE). Upstream parser attribution and its MIT notice are retained under [licenses/](skills/tabelog/scripts/client/licenses/tabelog-cli.txt), with provenance included in the wheel.
+This project is licensed under the [MIT License](LICENSE). Upstream parser attribution and its MIT notice are retained under [licenses/](skills/tabelog/scripts/tabelog_client/licenses/tabelog-cli.txt), with provenance included in the wheel.

@@ -4,9 +4,9 @@ import unittest
 from contextlib import redirect_stdout, redirect_stderr
 from unittest.mock import Mock
 
-from client.arguments import parse_arguments
-from client.cli import run
-from client.transport import Client
+from tabelog_client.arguments import parse_arguments
+from tabelog_client.cli import run
+from tabelog_client.transport import Client
 
 
 class CommandArgumentTests(unittest.TestCase):

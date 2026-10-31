@@ -10,12 +10,12 @@ from urllib.parse import urlsplit, parse_qs
 from unittest.mock import patch
 
 import httpx
-from client.cli import run
-from client.core import (CliError, calendar_decision, distance, meal_schedule, month_ago,
+from tabelog_client.cli import run
+from tabelog_client.core import (CliError, calendar_decision, distance, meal_schedule, month_ago,
                               point_value, public_url, review_window)
-from client.parsers import parse_map, parse_detail, parse_cards, parse_reviews, parse_review_read, parse_awards, matching_awards
-from client.service import Tabelog
-from client.transport import Client, RequestPacer, retry_after, request_headers
+from tabelog_client.parsers import parse_map, parse_detail, parse_cards, parse_reviews, parse_review_read, parse_awards, matching_awards
+from tabelog_client.service import Tabelog
+from tabelog_client.transport import Client, RequestPacer, retry_after, request_headers
 
 ROOT = 'https://tabelog.com'
 RESTAURANT = ROOT+'/ishikawa/A1701/A170101/17005534/'
@@ -377,7 +377,7 @@ class WorkflowTests(unittest.TestCase):
     def test_reviews_dates_and_full_text(self):
         visit=REVIEW.replace('rvw-item js-rvw-item-clickable-area','rvw-item__review-contents js-review').replace('rvw-item__ratings-total','rvw-item__single-ratings-total')
         app=Tabelog(client(lambda url:response(visit if '/B1234/' in url else REVIEW,url)))
-        with patch('client.service.today_japan',return_value='2026-10-29'),patch('client.core.today_japan',return_value='2026-10-29'):
+        with patch('tabelog_client.service.today_japan',return_value='2026-10-29'),patch('tabelog_client.core.today_japan',return_value='2026-10-29'):
             r=app.reviews(RESTAURANT,since='2026-09-29',pages=1,full=True)
             self.assertEqual(r['items'][0]['window'],'in_window')
             self.assertEqual(r['items'][0]['content_level'],'detail')

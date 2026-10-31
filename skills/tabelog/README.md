@@ -140,7 +140,7 @@ Users choose whether to authorize account-based access and accept associated ris
 
 ## References and acknowledgments
 
-- [krisamin/tabelog-cli](https://github.com/krisamin/tabelog-cli/tree/0dd2b3763c102aa5d129962632fb534cab831e69): endpoint and parser references. Rewritten Python parsing retains the upstream [MIT notice](scripts/client/licenses/tabelog-cli.txt) and [provenance](scripts/client/licenses/tabelog-cli.provenance.json), also included in the wheel.
+- [krisamin/tabelog-cli](https://github.com/krisamin/tabelog-cli/tree/0dd2b3763c102aa5d129962632fb534cab831e69): endpoint and parser references. Rewritten Python parsing retains the upstream [MIT notice](scripts/tabelog_client/licenses/tabelog-cli.txt) and [provenance](scripts/tabelog_client/licenses/tabelog-cli.provenance.json), also included in the wheel.
 - [narumiruna/gurume](https://github.com/narumiruna/gurume/tree/b72909ecc7e347b55d22386809f7dbc3b9c2066a): map XML, area catalogs, and suggestion research.
 - [hnaohiro/tabelog-crawler](https://github.com/hnaohiro/tabelog-crawler) and [tma15/python-tabelog](https://github.com/tma15/python-tabelog): additional research references.
 - [HTTPX](https://www.python-httpx.org/), [Beautiful Soup](https://www.crummy.com/software/BeautifulSoup/bs4/doc/), and [jpholiday](https://github.com/Lalcs/jpholiday): runtime libraries.

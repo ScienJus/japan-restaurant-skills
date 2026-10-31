@@ -4,11 +4,11 @@ from pathlib import Path
 import unittest
 from urllib.parse import urlsplit, parse_qs
 
-from client.catalog import Catalog, parse_catalog, parse_neighborhoods
-from client.cli import run
-from client.core import CliError
-from client.service import Tabelog
-from client.transport import Client, request_headers
+from tabelog_client.catalog import Catalog, parse_catalog, parse_neighborhoods
+from tabelog_client.cli import run
+from tabelog_client.core import CliError
+from tabelog_client.service import Tabelog
+from tabelog_client.transport import Client, request_headers
 
 FIXTURES = Path(__file__).parent / 'fixtures'
 CITY_URL = 'https://tabelog.com/ishikawa/C17201/rstLst/'

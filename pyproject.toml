@@ -16,12 +16,12 @@ Repository = "https://github.com/ScienJus/japan-restaurant-skills"
 Issues = "https://github.com/ScienJus/japan-restaurant-skills/issues"
 
 [project.scripts]
-tabelog = "client.cli:main"
+tabelog = "tabelog_client.cli:main"
 tablecheck = "tablecheck_client.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["skills/tabelog/scripts", "skills/tablecheck/scripts"]
-include = ["client*", "tablecheck_client*"]
+include = ["tabelog_client*", "tablecheck_client*"]
 
 [tool.setuptools.package-data]
-client = ["licenses/*.txt", "licenses/*.json"]
+tabelog_client = ["licenses/*.txt", "licenses/*.json"]

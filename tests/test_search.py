@@ -2,10 +2,10 @@
 import unittest
 from urllib.parse import parse_qs, urlsplit
 
-from client.cli import run
-from client.core import CliError
-from client.service import Tabelog
-from client.transport import Client
+from tabelog_client.cli import run
+from tabelog_client.core import CliError
+from tabelog_client.service import Tabelog
+from tabelog_client.transport import Client
 
 
 ROOT = 'https://tabelog.com'

@@ -5,10 +5,10 @@ from urllib.parse import parse_qs, urlsplit
 
 from bs4 import BeautifulSoup
 
-from client.cli import run
-from client.parsers import parse_reviews, parse_review_read
-from client.service import Tabelog
-from client.transport import Client
+from tabelog_client.cli import run
+from tabelog_client.parsers import parse_reviews, parse_review_read
+from tabelog_client.service import Tabelog
+from tabelog_client.transport import Client
 
 
 URL = 'https://tabelog.com/ishikawa/A1701/A170101/17005534/'

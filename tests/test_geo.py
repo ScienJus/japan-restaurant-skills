@@ -3,10 +3,10 @@ import json
 import unittest
 from urllib.parse import parse_qs, urlsplit
 
-from client.cli import run
-from client.core import CliError, public_url
-from client.geo import geocode, parse_locations
-from client.transport import Client, request_headers
+from tabelog_client.cli import run
+from tabelog_client.core import CliError, public_url
+from tabelog_client.geo import geocode, parse_locations
+from tabelog_client.transport import Client, request_headers
 
 
 SOURCE = 'https://photon.komoot.io/api/?q=test'

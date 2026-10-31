@@ -17,9 +17,12 @@ jobs:
         run: |
           python -m venv .venv
           .venv/bin/python -m pip install -r requirements.lock
-          .venv/bin/python -m pip install --no-deps -e .
+          .venv/bin/python -m pip wheel --no-deps --wheel-dir dist .
+          .venv/bin/python -m pip install --no-deps dist/*.whl
           .venv/bin/python -m pip check
           .venv/bin/python -m unittest discover -s tests -p 'test_*.py'
           .venv/bin/python scripts/check_submission.py
           bin/tabelog doctor
           bin/tablecheck doctor
+          .venv/bin/tabelog doctor
+          .venv/bin/tablecheck doctor

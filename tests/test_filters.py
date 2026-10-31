@@ -3,12 +3,12 @@ import json
 from pathlib import Path
 import unittest
 
-from client.cli import run
-from client.core import CliError
-from client.filters import budget_range, budget_check, opening_check
-from client.parsers import parse_courses, parse_detail, parse_map
-from client.service import Tabelog
-from client.transport import Client
+from tabelog_client.cli import run
+from tabelog_client.core import CliError
+from tabelog_client.filters import budget_range, budget_check, opening_check
+from tabelog_client.parsers import parse_courses, parse_detail, parse_map
+from tabelog_client.service import Tabelog
+from tabelog_client.transport import Client
 
 
 ROOT = 'https://tabelog.com'

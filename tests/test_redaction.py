@@ -1,9 +1,9 @@
 """Diagnostic source retains structure without publishing live form verification values."""
 import unittest
 
-from client.cli import run
-from client.redaction import redact_source
-from client.transport import Client
+from tabelog_client.cli import run
+from tabelog_client.redaction import redact_source
+from tabelog_client.transport import Client
 
 
 class SourceRedactionTests(unittest.TestCase):

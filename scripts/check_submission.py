@@ -147,7 +147,7 @@ def main():
         if not skill_license.is_file() or skill_license.read_bytes() != (ROOT/'LICENSE').read_bytes():
             issues.append({'kind': 'standalone_skill_license_mismatch', 'platform': platform})
     for name in ('tabelog-cli.txt', 'tabelog-cli.provenance.json'):
-        if not (ROOT/'skills/tabelog/scripts/client/licenses'/name).is_file():
+        if not (ROOT/'skills/tabelog/scripts/tabelog_client/licenses'/name).is_file():
             issues.append({'kind': 'missing_upstream_attribution', 'name': name})
     print(json.dumps({'status': 'error' if issues else 'ok', 'scope': scope, 'files_checked': len(paths),
                       'bytes_checked': sum(p.stat().st_size for p in paths if p.is_file()),
