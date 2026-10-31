@@ -320,6 +320,11 @@ class TableCheck:
         allowed = menus[0].get('service_category_ids') or []
         categories = [item for item in venue.get('service_categories') or [] if not allowed or item.get('id') in allowed]
         if not categories:
+            if not allowed and not venue.get('service_categories'):
+                # Some shops expose the API's required flag without any seat
+                # choices. Let the actual form establish whether a seat
+                # selection is exposed, without claiming a particular seat.
+                return self.constrained(venue, wanted, people, after, before, course, None)
             raise CliError('unsupported_scope', 'Required seat categories could not be resolved.')
         rows = {day: {'date': day, 'status': 'unknown', 'offered_times': [], 'slots': [], 'complete': True} for day in wanted}
         errors, completed, checked_categories = [], 0, []
@@ -372,8 +377,11 @@ class TableCheck:
         page = self.client.read('GET', f"/en/shops/{venue['slug']}/reserve")
         soup = BeautifulSoup(page, 'html.parser')
         params = {'reservation[num_people_adult]': people, 'reservation[num_people_child]': 0, 'reservation[num_people_baby]': 0}
+        seat_controls = soup.select('[name="reservation[service_category]"]')
+        if not selected_seat and venue.get('tc_input_service_category') == 'required' and seat_controls:
+            raise CliError('unsupported_scope', 'The public form requires a seat choice that could not be resolved.')
         if selected_seat:
-            actual = [tag.get('value') for tag in soup.select('[name="reservation[service_category]"]')]
+            actual = [tag.get('value') for tag in seat_controls]
             if selected_seat not in actual:
                 raise CliError('unsupported_scope', 'Seat is not present in the public reservation form.')
             params['reservation[service_category]'] = selected_seat
@@ -461,7 +469,9 @@ class TableCheck:
                 'course_id': course, 'seat_category_id': selected_seat, 'scope': 'filtered_reservation_form',
                 'course_linked': bool(course), 'seat_linked': bool(selected_seat), 'days': list(rows.values()),
                 'coverage': 'complete' if all(row['complete'] for row in rows.values()) and not failures else 'partial', 'errors': failures,
-                'note': 'Positive filtered timetable slots are confirmed with a second read. No reservation or hold is created.'}
+                'note': 'Positive filtered timetable slots are confirmed with a second read. No reservation or hold is created.' +
+                        (' The shop API marks seats as required, but the public form has no seat selector; seat type remains unverified.'
+                         if not selected_seat and venue.get('tc_input_service_category') == 'required' else '')}
 
     def search(self, near, radius, cuisines, budget_min, budget_max, pages, limit, start=None, end=None, people=None, after='00:00', before='23:59', with_courses=False, meal=None, area=None):
         location = None

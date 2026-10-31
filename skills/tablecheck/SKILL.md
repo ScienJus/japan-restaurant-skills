@@ -38,6 +38,8 @@ Multi-day `search --from/--to` checks each candidate's venue calendar instead. `
 
 Add `--course ID` and/or `--seat CATEGORY_ID_OR_EXACT_NAME` to inventory queries when requested. Read IDs and seat names from the same restaurant's details first. Filtered inventory currently requires a public v1 booking form. The CLI reads the actual menu index and category from that form, batches dates through its timetable endpoint, then confirms positive slots using a second GET. If a course query omits a seat but the form requires one, it checks each applicable seat category separately and preserves category IDs on confirmed slots; this increases requests. A v2 venue with these filters returns an explicit unsupported-scope error, rather than silently checking venue-wide inventory. Booking links are for human handoff; the returned course/seat evidence remains separate from URL prefills.
 
+An API-required seat flag with no API categories is checked against the public form. If the course has no seat restrictions and the form exposes no seat selector, course-only queries can proceed with `seat_linked=false`; the seat type remains unverified. An explicit `--seat` is never dropped.
+
 ```bash
 bin/tablecheck suggest 海老亭別館
 bin/tablecheck search --area 金沢 --radius-m 10000 --date 2026-12-02 --people 2 --limit 5

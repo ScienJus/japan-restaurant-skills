@@ -165,6 +165,72 @@ class TableCheckTests(unittest.TestCase):
         self.assertEqual(transport.requests, 6)
         transport.close()
 
+    def test_required_seat_flag_without_api_categories_or_form_controls_checks_course_only(self):
+        shop = {**SHOP, 'tc_input_service_category': 'required', 'service_categories': []}
+        seen = []
+        def handler(request):
+            seen.append(request)
+            path = request.url.path
+            if '/v2/shops/' in path:
+                return response({'shops': [shop]})
+            if path.endswith('/menu_items'):
+                return response({'menu_items': [{**COURSE, 'service_category_ids': []}]})
+            if path.endswith('/reserve'):
+                return httpx.Response(200, text=
+                    '<input name="reservation[orders_attributes][0][menu_item_id]" value="'+COURSE['id']+'">'
+                    '<input name="reservation[orders_attributes][0][is_group_order]" value="true">')
+            self.assertNotIn('reservation[service_category]', request.url.params)
+            self.assertEqual(request.url.params['reservation[orders_attributes][0][menu_item_id]'], COURSE['id'])
+            if path.endswith('/timetable'):
+                return response({'queried_date': '2026-12-01', 'data': {'slots': {
+                    day: {str(int(datetime.fromisoformat(day+'T09:00:00+00:00').timestamp())): {'available': True}}
+                    for day in ('2026-12-01', '2026-12-02')}}})
+            return response({'status': 'success'})
+        transport = client(handler)
+        result = TableCheck(transport).availability(shop['slug'], '2026-12-01', '2026-12-02', 2, '17:00', '21:00', course=COURSE['id'])
+        self.assertEqual(result['coverage'], 'complete')
+        self.assertTrue(result['course_linked'])
+        self.assertFalse(result['seat_linked'])
+        self.assertIsNone(result['seat_category_id'])
+        self.assertTrue(all(day['offered_times'] == ['18:00'] for day in result['days']))
+        self.assertEqual(sum(r.url.path.endswith('/timetable') for r in seen), 1)
+        self.assertEqual(transport.requests, 6)
+        self.assertIn('seat type remains unverified', result['note'])
+        transport.close()
+
+    def test_missing_api_categories_never_silently_drops_a_form_or_course_seat_requirement(self):
+        shop = {**SHOP, 'tc_input_service_category': 'required', 'service_categories': []}
+        for allowed in ([], ['private']):
+            with self.subTest(allowed=allowed):
+                def handler(request):
+                    path = request.url.path
+                    if '/v2/shops/' in path:
+                        return response({'shops': [shop]})
+                    if path.endswith('/menu_items'):
+                        return response({'menu_items': [{**COURSE, 'service_category_ids': allowed}]})
+                    self.assertTrue(path.endswith('/reserve'))
+                    return httpx.Response(200, text='<input name="reservation[service_category]" value="private">')
+                transport = client(handler)
+                with self.assertRaises(CliError) as caught:
+                    TableCheck(transport).availability(shop['slug'], '2026-12-01', '2026-12-02', 2, course=COURSE['id'])
+                self.assertEqual(caught.exception.code, 'unsupported_scope')
+                self.assertLessEqual(transport.requests, 3)
+                transport.close()
+
+        transport = client(lambda request: response({'shops': [shop]}))
+        with self.assertRaises(CliError) as caught:
+            TableCheck(transport).availability(shop['slug'], '2026-12-01', '2026-12-02', 2, seat='Counter')
+        self.assertEqual(caught.exception.code, 'invalid_argument')
+        self.assertEqual(transport.requests, 1)
+        transport.close()
+
+    def test_source_returns_html_without_treating_it_as_a_result_object(self):
+        transport = client(lambda request: httpx.Response(200, text='<title>Reservation form</title>'))
+        result = run(['source', '/en/shops/sample-restaurant/reserve'], create_client=lambda **_: transport)
+        self.assertEqual(result['exit_code'], 0)
+        self.assertEqual(result['output']['data'], '<title>Reservation form</title>')
+        self.assertEqual(result['output']['usage']['network_requests_started'], 1)
+
     def test_search_verifies_candidates_and_stops_after_enough_available_results(self):
         shops = [{**SHOP, 'slug': name, '_id': str(index)*24} for index, name in enumerate(('first', 'second', 'third'), 1)]
         queried = []

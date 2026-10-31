@@ -47,7 +47,7 @@ def run(argv, create_client=Client):
             if args.command == 'calendar':
                 for day in data['days']:
                     day['available_time_count'] = len(day.pop('offered_times'))
-        partial = data.get('coverage') == 'partial'
+        partial = isinstance(data, dict) and data.get('coverage') == 'partial'
         return {'output': {'status': 'partial' if partial else 'ok', 'command': args.command, 'checked_at': stamp(), 'timezone': 'Asia/Tokyo',
                            'data': data, 'usage': client.usage(), 'trace': client.trace}, 'exit_code': 3 if partial else 0}
     except HelpRequested as help_requested:
