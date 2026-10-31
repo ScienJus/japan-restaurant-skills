@@ -1,6 +1,6 @@
 # Japan Restaurant Skills
 
-Agent skills and CLI tools for finding Japanese restaurants, reading reviews, and checking online reservation dates and times. Tabelog is the main integration and the only implemented platform today. TableCheck and OMAKASE may be added as separate skills in the future. Current operations are read-only and do not submit reservations.
+Agent skills and CLI tools for finding Japanese restaurants, reading reviews, and checking online reservation dates and times. Tabelog is the main integration; TableCheck supports anonymous discovery, courses and availability. OMAKASE may be added as a separate skill in the future. Current operations are read-only and do not submit reservations.
 
 Read the [responsible-use and account-risk notice](#responsible-use-and-account-risk) before making queries or authorizing access to an account.
 
@@ -23,10 +23,12 @@ Then follow the [standalone setup](skills/tabelog/README.md#installation) to ins
 | Skill | Status | Capabilities |
 | --- | --- | --- |
 | [Tabelog](skills/tabelog/SKILL.md) | Available; main integration | Restaurant search, details, courses, reviews, awards, and online reservation availability |
+| [TableCheck](skills/tablecheck/SKILL.md) | Available; first version | Restaurant discovery, courses, multi-day availability, and course/seat combinations on public v1 booking forms |
 
 - [Tabelog guide and acknowledgments](skills/tabelog/README.md): installation, commands, examples, and limitations.
 - [Skill entry point](skills/tabelog/SKILL.md): agent workflows, evidence, and access rules.
 - [Query costs](skills/tabelog/references/costs.md): request-count formulas, dependencies, and measurement scope.
+- [TableCheck guide](skills/tablecheck/SKILL.md): commands, anonymous request policy, costs and acknowledgments. Install the standalone skill from `skills/tablecheck` using the same skill-installer flow if needed.
 
 ## Local setup
 
@@ -41,7 +43,9 @@ python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.lock
 .venv/bin/python -m pip install --no-deps -e .
 bin/tabelog doctor
+bin/tablecheck doctor
 bin/tabelog search --station 金沢駅 --radius-m 1000 --min-rating 3.5 --meal lunch
+bin/tablecheck suggest 海老亭別館
 ```
 
 ## Development
@@ -58,7 +62,7 @@ Repository documentation and skill metadata are maintained in English only. Japa
 
 `research/`, virtual environments, caches, and build outputs are ignored. Tests use the necessary samples in `tests/fixtures/` and do not require development captures.
 
-GitHub Actions runs the offline checks on pushes and pull requests. It does not query Tabelog.
+GitHub Actions runs the offline checks on pushes and pull requests. It does not query restaurant platforms.
 
 ## Responsible use and account risk
 

@@ -5,8 +5,8 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "japan-restaurant-skills"
 version = "0.2.0"
-description = "Read-only Tabelog restaurant discovery and availability CLI"
-readme = "skills/tabelog/README.md"
+description = "Read-only Tabelog and TableCheck restaurant discovery and availability CLIs"
+readme = "README.md"
 license = {file = "LICENSE"}
 requires-python = ">=3.10"
 dependencies = ["httpx[socks]>=0.28,<0.29", "beautifulsoup4>=4.13,<5", "jpholiday>=1.0.3,<2"]
@@ -17,10 +17,11 @@ Issues = "https://github.com/ScienJus/japan-restaurant-skills/issues"
 
 [project.scripts]
 tabelog = "client.cli:main"
+tablecheck = "tablecheck_client.cli:main"
 
 [tool.setuptools.packages.find]
-where = ["skills/tabelog/scripts"]
-include = ["client*"]
+where = ["skills/tabelog/scripts", "skills/tablecheck/scripts"]
+include = ["client*", "tablecheck_client*"]
 
 [tool.setuptools.package-data]
 client = ["licenses/*.txt", "licenses/*.json"]

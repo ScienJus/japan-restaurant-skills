@@ -139,9 +139,10 @@ def main():
         issues.extend(inspect_file(path))
     if (ROOT/'requirements.lock').read_bytes() != (ROOT/'skills/tabelog/scripts/requirements.txt').read_bytes():
         issues.append({'kind': 'standalone_skill_lock_mismatch'})
-    skill_license = ROOT/'skills/tabelog/LICENSE'
-    if not skill_license.is_file() or skill_license.read_bytes() != (ROOT/'LICENSE').read_bytes():
-        issues.append({'kind': 'standalone_skill_license_mismatch'})
+    for platform in ('tabelog', 'tablecheck'):
+        skill_license = ROOT/'skills'/platform/'LICENSE'
+        if not skill_license.is_file() or skill_license.read_bytes() != (ROOT/'LICENSE').read_bytes():
+            issues.append({'kind': 'standalone_skill_license_mismatch', 'platform': platform})
     for name in ('tabelog-cli.txt', 'tabelog-cli.provenance.json'):
         if not (ROOT/'skills/tabelog/scripts/client/licenses'/name).is_file():
             issues.append({'kind': 'missing_upstream_attribution', 'name': name})
