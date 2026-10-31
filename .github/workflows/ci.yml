@@ -24,5 +24,7 @@ jobs:
           .venv/bin/python scripts/check_submission.py
           bin/tabelog doctor
           bin/tablecheck doctor
+          bin/pocket-concierge doctor
           .venv/bin/tabelog doctor
           .venv/bin/tablecheck doctor
+          .venv/bin/pocket-concierge doctor

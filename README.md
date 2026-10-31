@@ -1,6 +1,6 @@
 # Japan Restaurant Skills
 
-Agent skills and CLI tools for finding Japanese restaurants, reading reviews, and checking online reservation dates and times. Tabelog is the main integration; TableCheck supports anonymous discovery, courses and availability. OMAKASE may be added as a separate skill in the future. Current operations are read-only and do not submit reservations.
+Agent skills and CLI tools for finding Japanese restaurants, reading reviews, and checking online reservation dates and times. Tabelog is the main integration; TableCheck and Pocket Concierge support anonymous discovery, courses and availability. OMAKASE is not implemented. Current operations are read-only and do not submit reservations.
 
 If you find this project useful, please consider giving it a [star on GitHub](https://github.com/ScienJus/japan-restaurant-skills) to show your support.
 
@@ -14,13 +14,15 @@ Give an agent this repository URL or a local checkout, followed by a request suc
 
 The agent needs terminal access, Python 3.10+, and outbound network access. It can clone or download the repository and use the CLI directly; global skill installation is optional. Ordinary queries require no API key, account, or browser. A chat interface without code execution cannot run the CLI from a URL alone.
 
-To install a standalone platform skill in Codex, ask for either:
+To install a standalone platform skill in Codex, ask for one of these:
 
 > Use $skill-installer to install https://github.com/ScienJus/japan-restaurant-skills/tree/main/skills/tabelog.
 
 > Use $skill-installer to install https://github.com/ScienJus/japan-restaurant-skills/tree/main/skills/tablecheck.
 
-Then install its Python dependencies following the [Tabelog setup](skills/tabelog/README.md#installation) or [TableCheck setup](skills/tablecheck/SKILL.md#setup).
+> Use $skill-installer to install https://github.com/ScienJus/japan-restaurant-skills/tree/main/skills/pocket-concierge.
+
+Then install its Python dependencies following the [Tabelog setup](skills/tabelog/README.md#installation), [TableCheck setup](skills/tablecheck/SKILL.md#setup), or [Pocket Concierge setup](skills/pocket-concierge/SKILL.md#setup).
 
 ## Available skills
 
@@ -28,15 +30,19 @@ Then install its Python dependencies following the [Tabelog setup](skills/tabelo
 | --- | --- | --- |
 | [Tabelog](skills/tabelog/SKILL.md) | Available; main integration | Restaurant search, details, courses, reviews, awards, and online reservation availability |
 | [TableCheck](skills/tablecheck/SKILL.md) | Available; first version | Restaurant discovery by area or coordinates, native single-day availability search, courses, multi-day availability, and course/seat combinations on public v1 booking forms |
+| [Pocket Concierge](skills/pocket-concierge/SKILL.md) | Available; first version | Native area/date/party search, details, courses, calendar screening and course-linked sessions with party-size ranges; instant, request and waitlist modes stay separate |
 
 - [Tabelog guide and acknowledgments](skills/tabelog/README.md): installation, commands, examples, and limitations.
 - [Tabelog skill entry point](skills/tabelog/SKILL.md): agent workflows, evidence, and access rules.
 - [Tabelog query costs](skills/tabelog/references/costs.md): request-count formulas, dependencies, and measurement scope.
 - [TableCheck guide](skills/tablecheck/SKILL.md): commands, anonymous request policy, costs and acknowledgments.
+- [Pocket Concierge guide](skills/pocket-concierge/SKILL.md): commands, inventory scopes, request costs and acknowledgments.
 
 TableCheck's `--area` searches around a native location's center, not an administrative boundary. Single-day searches return indexed time-slot hints for the requested party; use `availability` on a chosen restaurant for a separate venue or course/seat check. Course/seat checks currently require a public v1 booking form.
 
 Shared command names do not imply identical options: TableCheck requires `--people` for inventory and uses exact `--time`; Tabelog can discover party sizes and uses `--time` as an upstream anchor. Use each command's `--help` for its parameters.
+
+Pocket Concierge returns party-size bounds directly for each session; `--people` is optional for sessions and requires `--date` for search. Its calendar is a restaurant-level date signal. Session time filters match reported start times; source end times are not meal durations. Request-booking and waitlist results are distinct from instant-confirmation options.
 
 ## Local setup
 
@@ -52,12 +58,14 @@ python3 -m venv .venv
 .venv/bin/python -m pip install --no-deps -e .
 bin/tabelog doctor
 bin/tablecheck doctor
+bin/pocket-concierge doctor
 bin/tabelog search --station 金沢駅 --radius-m 1000 --min-rating 3.5 --meal lunch
 bin/tablecheck search --area 金沢 --radius-m 10000 \
   --date 2026-12-02 --people 2 --limit 5
+bin/pocket-concierge slots 245672 --date 2026-12-02 --people 2 --meal dinner
 ```
 
-Replace the example date with a current or future trip date. The installed commands `tabelog` and `tablecheck` are also available inside the virtual environment.
+Replace the example date with a current or future trip date. The installed commands `tabelog`, `tablecheck` and `pocket-concierge` are also available inside the virtual environment.
 
 Platform instructions and implementations live in `skills/<platform>/`; `bin/` contains source-tree launchers. `tests/` holds offline behavior checks and necessary fixtures, and `scripts/check_submission.py` checks the publishable file set. No background server or shared browser runtime is needed.
 
@@ -75,13 +83,13 @@ Repository documentation and skill metadata are maintained in English only. Japa
 
 `research/`, virtual environments, caches, and build outputs are ignored. Tests use the necessary samples in `tests/fixtures/` and do not require development captures.
 
-GitHub Actions builds and installs the wheel, runs the offline tests and submission checks, and checks both installed commands and source launchers on pushes and pull requests. It does not query restaurant platforms.
+GitHub Actions builds and installs the wheel, runs the offline tests and submission checks, and checks all installed commands and source launchers on pushes and pull requests. It does not query restaurant platforms.
 
 ## Responsible use and account risk
 
 This project is provided for learning, research, and reference. Users are responsible for checking and following applicable laws, platform terms, published crawling rules, and privacy and intellectual-property requirements. It does not authorize access to restricted content or use of third-party data beyond the rights granted by its owners. Do not use it for bulk harvesting, disruptive traffic, or bypassing access restrictions. The project is independent of, and is not endorsed by, the platforms it queries.
 
-The CLIs are designed to reduce unnecessary requests and service load through serial requests, default 1–2.5-second same-site delays, per-command caching and request limits, early stopping once enough restaurants match, native batch search, and calendar reuse or screening before candidate time-slot queries. They stop further reads on access denials, challenges, rate limits, and service-unavailable responses. These measures reduce traffic; they do not guarantee zero impact, continued access, or protection from blocking. Limits apply within each command, so users and agents must also coordinate separate commands and respect server cooldowns. See the [Tabelog request policy](skills/tabelog/references/access.md#request-policy) and [TableCheck request policy](skills/tablecheck/SKILL.md#request-policy-and-interpretation).
+The CLIs are designed to reduce unnecessary requests and service load through serial requests, default 1–2.5-second same-site delays, per-command caching and request limits, early stopping once enough restaurants match, native batch search, and calendar reuse or screening before candidate time-slot queries. They stop further reads on access denials, challenges, rate limits, and service-unavailable responses. These measures reduce traffic; they do not guarantee zero impact, continued access, or protection from blocking. Limits apply within each command, so users and agents must also coordinate separate commands and respect server cooldowns. See the [Tabelog request policy](skills/tabelog/references/access.md#request-policy), [TableCheck request policy](skills/tablecheck/SKILL.md#request-policy-and-interpretation), and [Pocket Concierge request policy](skills/pocket-concierge/SKILL.md#request-policy-and-costs).
 
 All currently implemented CLI queries work without personal account credentials and do not import a user's login cookies or browser profile. If a future feature or browser-assisted workflow requires a user identity, the tool or agent must first explain the platform and account involved, the purpose and actions, which credentials or session data would be used, and the account/privacy risks. It must obtain the user's explicit consent for that scope **before accessing, importing, reusing, or transmitting credentials, login cookies, tokens, or an authenticated session**. General permission to search for restaurants does not authorize account access. Credentials and session data must not be included in logs, reports, commits, or shared captures.
 

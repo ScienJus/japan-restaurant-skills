@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "japan-restaurant-skills"
 version = "0.2.0"
-description = "Read-only Tabelog and TableCheck restaurant discovery and availability CLIs"
+description = "Read-only Japanese restaurant discovery and availability CLIs for Tabelog, TableCheck and Pocket Concierge"
 readme = "README.md"
 license = {file = "LICENSE"}
 requires-python = ">=3.10"
@@ -18,10 +18,11 @@ Issues = "https://github.com/ScienJus/japan-restaurant-skills/issues"
 [project.scripts]
 tabelog = "tabelog_client.cli:main"
 tablecheck = "tablecheck_client.cli:main"
+pocket-concierge = "pocket_concierge_client.cli:main"
 
 [tool.setuptools.packages.find]
-where = ["skills/tabelog/scripts", "skills/tablecheck/scripts"]
-include = ["tabelog_client*", "tablecheck_client*"]
+where = ["skills/tabelog/scripts", "skills/tablecheck/scripts", "skills/pocket-concierge/scripts"]
+include = ["tabelog_client*", "tablecheck_client*", "pocket_concierge_client*"]
 
 [tool.setuptools.package-data]
 tabelog_client = ["licenses/*.txt", "licenses/*.json"]

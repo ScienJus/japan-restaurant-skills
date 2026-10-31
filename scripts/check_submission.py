@@ -138,8 +138,10 @@ def main():
             issues.append({'file': rel.as_posix(), 'kind': 'local_only_file_tracked'})
         issues.extend(inspect_file(path))
     root_lock = (ROOT/'requirements.lock').read_text(encoding='utf-8')
-    locks = {'tabelog': root_lock, 'tablecheck': '\n'.join(line for line in root_lock.splitlines() if not line.startswith('jpholiday=='))+'\n'}
-    for platform in ('tabelog', 'tablecheck'):
+    locks = {'tabelog': root_lock,
+             'tablecheck': '\n'.join(line for line in root_lock.splitlines() if not line.startswith('jpholiday=='))+'\n',
+             'pocket-concierge': '\n'.join(line for line in root_lock.splitlines() if not line.startswith(('jpholiday==', 'beautifulsoup4==', 'soupsieve==')))+'\n'}
+    for platform in locks:
         skill_lock = ROOT/'skills'/platform/'scripts/requirements.txt'
         if not skill_lock.is_file() or skill_lock.read_text(encoding='utf-8') != locks[platform]:
             issues.append({'kind': 'standalone_skill_lock_mismatch', 'platform': platform})
