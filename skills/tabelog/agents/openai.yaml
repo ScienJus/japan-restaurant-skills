@@ -1,0 +1,4 @@
+interface:
+  display_name: "Tabelog Restaurant Search"
+  short_description: "Find Japanese restaurants, reviews, and booking availability"
+  default_prompt: "Use $tabelog to find yakiniku restaurants in Ginza rated at least 3.5, and compare their Hyakumeiten selection records."
