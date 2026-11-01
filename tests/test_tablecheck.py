@@ -62,7 +62,69 @@ class TableCheckTests(unittest.TestCase):
         self.assertEqual(transport.requests, 3)
         self.assertEqual(result['coverage'], 'partial')
         self.assertEqual(result['days'][-1]['status'], 'unknown')
+        self.assertEqual(result['errors'][-1]['code'], 'incomplete_coverage')
         transport.close()
+
+    def test_complete_calendar_with_no_slots_is_success(self):
+        def handler(request):
+            return response({'shops': [SHOP]}) if '/shops/' in request.url.path else response({
+                'availability_calendar': {'type': 'success', 'time_zone': 'Asia/Tokyo',
+                    'data': {'2099-12-01': calendar('2099-12-01')}, 'closed_dates': []}})
+        transport = client(handler)
+        result = run(['availability', SHOP['slug'], '--date', '2099-12-01', '--people', '2', '--meal', 'dinner'],
+                     create_client=lambda **_: transport)
+        self.assertEqual(result['exit_code'], 0)
+        self.assertEqual(result['output']['status'], 'ok')
+        self.assertEqual(result['output']['data']['days'][0]['status'], 'unavailable')
+
+    def test_invalid_alternate_time_and_missing_dates_are_nonzero_at_cli_boundary(self):
+        for alternates in ({'2099-12-01': ['not-a-timestamp']}, {}):
+            with self.subTest(alternates=alternates):
+                def handler(request):
+                    return response({'shops': [SHOP]}) if '/shops/' in request.url.path else response({
+                        'availability_calendar': {'type': 'success', 'time_zone': 'Asia/Tokyo',
+                            'data': {'2099-12-01': calendar('2099-12-01')}, 'closed_dates': [],
+                            'alternate_timeslots': alternates}})
+                transport = client(handler)
+                result = run(['availability', SHOP['slug'], '--from', '2099-12-01', '--to', '2099-12-02',
+                              '--people', '2', '--meal', 'dinner'], create_client=lambda **_: transport)
+                self.assertEqual(result['exit_code'], 3)
+                self.assertEqual(result['output']['status'], 'partial')
+                codes = {error['code'] for error in result['output']['errors']}
+                self.assertIn('incomplete_coverage', codes)
+                if alternates:
+                    self.assertIn('unexpected_response', codes)
+
+    def test_search_reports_skipped_unknown_filters_and_keeps_matches_when_menus_fail(self):
+        for invalid, flags, code in (
+            ({'geocode': None}, [], 'unverified_distance'),
+            ({'budget_dinner_avg': None}, ['--budget-max', '30000'], 'unverified_budget'),
+            ({}, ['--with-courses'], 'access_denied'),
+        ):
+            with self.subTest(code=code):
+                def handler(request):
+                    if request.url.path.endswith('/menu_items'):
+                        return httpx.Response(403)
+                    return response({'shops': [{**SHOP, **invalid}], 'meta': {'last_page': True}})
+                transport = client(handler)
+                result = run(['search', '--near', '36.5,136.5', *flags], create_client=lambda **_: transport)
+                self.assertEqual(result['exit_code'], 3)
+                self.assertEqual(result['output']['status'], 'partial')
+                self.assertEqual(result['output']['errors'][0]['code'], code)
+                if code == 'access_denied':
+                    item = result['output']['data']['items'][0]
+                    self.assertEqual(item['slug'], SHOP['slug'])
+                    self.assertIsNone(item['courses'])
+
+    def test_invalid_course_eligibility_is_not_reported_as_an_empty_menu(self):
+        for change in ({'days': ['new-code']}, {'valid_date_ranges': [{'start_date': 'not-a-date'}]}, {'meals': 'invalid'}):
+            with self.subTest(change=change):
+                transport = client(lambda request: response({'shops': [SHOP]}) if '/shops/' in request.url.path else
+                                   response({'menu_items': [{**COURSE, **change}]}))
+                result = run(['courses', SHOP['slug'], '--date', '2099-12-01', '--meal', 'dinner'],
+                             create_client=lambda **_: transport)
+                self.assertEqual(result['exit_code'], 1)
+                self.assertEqual(result['output']['error']['code'], 'unexpected_response')
 
     def test_filtered_course_uses_form_index_and_batches_dates_then_confirms(self):
         seen = []

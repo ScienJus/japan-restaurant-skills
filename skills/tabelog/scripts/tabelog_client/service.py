@@ -33,8 +33,11 @@ class Tabelog:
         def parse(raw, _url):
             if not isinstance(raw, list):
                 raise CliError("unexpected_response", "Expected a suggestion array.")
+            if any(not isinstance(r, dict) or not isinstance(r.get('name'), str) or not r['name'].strip()
+                   or not isinstance(r.get('datatype'), str) for r in raw):
+                raise CliError('unexpected_response', 'Suggestion contains an invalid name or type.')
             return [{**r, "kind": "area" if r["datatype"] in AREA_TYPES else "cuisine" if r["datatype"].startswith("Genre") else "restaurant" if r["datatype"] == "AreaRestaurant" else "other"}
-                    for r in raw if isinstance(r, dict) and r.get("name") and isinstance(r.get("datatype"), str)]
+                    for r in raw]
         return self.client.read(endpoint("/en/suggest/keyword_suggest", {"keyword": keyword}), "json", parse)
 
     def station(self, keyword):
@@ -92,9 +95,13 @@ class Tabelog:
             try:
                 self.course_menus[ref['id']] = self.client.read(url, 'html', lambda body, final: parse_courses(body, ref, final))
             except CliError as error:
-                self.course_menus[ref['id']] = {'items': [], 'source_url': url, 'coverage': 'unknown', 'error': error.as_dict()}
+                self.course_menus[ref['id']] = {'items': None, 'source_url': url, 'coverage': 'unknown', 'error': error.as_dict()}
         courses = self.course_menus[ref['id']]
-        return {**item, 'courses': courses, **({'coverage': 'partial'} if courses.get('error') else {})}
+        errors = list(item.get('errors') or [])
+        errors.extend({'scope': 'courses', **error} for error in courses.get('errors', []))
+        if courses.get('error'):
+            errors.append({'scope': 'courses', **courses['error']})
+        return {**item, 'courses': courses, **({'coverage': 'partial', 'errors': errors} if errors else {})}
 
     def latest_awards(self, records):
         if not any(r.get("category") for r in records):
@@ -126,7 +133,12 @@ class Tabelog:
     def awards(self, target, year=None, category=None):
         item = self.detail(target)
         latest = {} if year else self.latest_awards(item["awards"])
+        incomplete = any(not r['year'] or not r['category'] for r in item['awards'])
+        errors = list(item.get('errors') or [])
+        if incomplete:
+            errors.append({'code': 'unverified_award', 'message': 'Some award badges lack a recognizable year or category.'})
         return {"id": item["id"], "records": item["awards"], "matches": matching_awards(item["awards"], year, category, latest), "latest_by_category": latest,
+                **({'coverage': 'partial', 'errors': errors} if errors else {}),
                 "verification": "partial" if any(not r["year"] or not r["category"] for r in item["awards"]) else "observed_badges",
                 "warning": "A missing or unclassified badge is unknown, not evidence that the restaurant was never selected."}
 
@@ -148,7 +160,7 @@ class Tabelog:
             exhausted = not result["has_next"] or not result["items"]
             yield {"items": result["items"], "meta": {"source": "map_api", "bounds": bounds, "upstream_rectangle_total": total,
                    "pages_read": page, "scanned_count": scanned, "invalid_records": invalid,
-                   "coverage": "partial" if total > scanned or invalid else "observed_rectangle",
+                   "coverage": "partial" if invalid else "limited" if total > scanned else "observed_rectangle",
                    "stop_reason": "source_exhausted" if exhausted else "page_limit",
                    "warnings": ["Map total describes a rectangle, not the radius or an administrative area."]}}
             if exhausted:
@@ -162,7 +174,7 @@ class Tabelog:
         a = choices[0]
         query = {k: a.get(k) or "" for k in ("pal", "LstPrf", "LstAre", "station_id")}
         query.update(SrtT="rt", area_datatype=a["datatype"], area_id=a.get("id_in_datatype", ""))
-        scanned = 0
+        scanned, invalid = 0, 0
         for page in range(1, pages+1):
             url = endpoint("/en/rstLst/"+(f"{page}/" if page > 1 else ""), filter_params(query, category_ids))
             def parse(body, _url):
@@ -176,9 +188,11 @@ class Tabelog:
             result = self.client.read(url, "html", parse)
             total = result["count"]["total"]
             scanned += len(result["items"])
+            invalid += result['invalid']
             exhausted = not result["items"] or total is not None and scanned >= total
             yield {"items": result["items"], "meta": {"source": "area_suggest_api_then_html", "resolved_area": a["name"], "upstream_area_total": total,
-                   "pages_read": page, "scanned_count": scanned, "coverage": "observed_area" if total == scanned else "partial",
+                   "pages_read": page, "scanned_count": scanned, "coverage": "partial" if invalid else "observed_area" if total == scanned else "limited",
+                   "invalid_records": invalid,
                    "stop_reason": "source_exhausted" if exhausted else "page_limit", "warnings": []}}
             if exhausted:
                 break
@@ -216,11 +230,14 @@ class Tabelog:
         def rating_key(item):
             return -(item["rating"] if item.get("rating") is not None else -1)
 
-        items, unverified, seen = [], [], set()
+        items, unverified, seen, errors = [], [], set(), []
         candidates_checked = 0
         meal_check = {"candidates_checked": 0, "excluded": [], "stopped_at_limit": False}
 
         def check(item):
+            if min_rating is not None and item.get('rating') is None:
+                unverified.append({**item, 'reason': 'Rating is missing; requested minimum cannot be verified'})
+                return None
             if not matches(item):
                 return None
             data = dict(item)
@@ -242,6 +259,7 @@ class Tabelog:
             try:
                 if meal or has_opening or (origin and ("latitude" not in data or "longitude" not in data)):
                     detail = self.detail(item["url"])
+                    errors.extend({'restaurant_id': item['id'], **error} for error in detail.get('errors', []))
                     data.update(detail, name=item["name"], localized_name=detail.get("name"),
                                 cuisines=item['cuisines'], localized_cuisines=detail.get('cuisines', []))
                 if origin:
@@ -281,7 +299,7 @@ class Tabelog:
             except CliError as error:
                 if error.code in STOP_CODES:
                     raise
-                unverified.append({**item, "reason": error.code})
+                unverified.append({**item, "reason": error.code, 'error': error.as_dict()})
                 return None
 
         def consume(batches):
@@ -317,10 +335,18 @@ class Tabelog:
                 meal_check.update(candidates_checked=0, excluded=[], stopped_at_limit=False)
                 meta = consume(self.area_search(area, pages, category_ids))
                 meta["warnings"].append(f"Map API unavailable ({error.code}); searched the explicitly supplied fallback area.")
+                errors.append({'scope': 'map_search', **error.as_dict()})
         else:
             meta = consume(self.area_search(area, pages, category_ids))
         items.sort(key=rating_key)
-        return {"items": items, "unverified": unverified, "meta": {**meta, "origin": origin, "radius_m": radius if origin else None,
+        if unverified:
+            errors.append({'code': 'unverified_candidates', 'message': 'Some restaurants could not be checked against the requested filters.',
+                           'count': len(unverified)})
+        if meta.get('invalid_records'):
+            errors.append({'code': 'invalid_records', 'message': 'Some source restaurant records could not be parsed.', 'count': meta['invalid_records']})
+        return {"items": items, "unverified": unverified, 'errors': errors,
+                'coverage': 'partial' if errors else 'limited' if meta['stop_reason'] != 'source_exhausted' else 'complete',
+                "meta": {**meta, "origin": origin, "radius_m": radius if origin else None,
                 "sort": "rating_desc", "upstream_sort": "rt", "candidates_checked": candidates_checked,
                 "matching_before_limit": len(items), **({"meal_check": meal_check} if meal else {}),
                 **({'hyakumeiten_filter': award_filter} if hyakumeiten else {}),
@@ -400,9 +426,18 @@ class Tabelog:
                         continue
                 confirmed.append(item)
             selected = confirmed
-        return {"restaurant_id": ref["id"], "items": selected, 'unverified': unverified, "meta": {"since": since, "until": until, "basis": "visit", "pages_read": read,
+        errors = []
+        if unverified or meal_check['unknown_full_visits']:
+            errors.append({'code': 'unverified_reviews', 'message': 'Some reviews or visits could not be verified against the requested meal.'})
+        if any(r['window'] in ('undated', 'boundary_uncertain') for r in selected):
+            errors.append({'code': 'unverified_visit_dates', 'message': 'Some review visit dates cannot be placed precisely in the requested window.'})
+        if full and any(r['content_level'] != 'detail' for r in selected):
+            errors.append({'code': 'missing_review_url', 'message': 'Full text was requested but a review detail URL is missing.'})
+        return {"restaurant_id": ref["id"], "items": selected, 'unverified': unverified, 'errors': errors,
+                'coverage': 'partial' if errors else 'complete' if exhausted and len(items) <= limit else 'limited',
+                "meta": {"since": since, "until": until, "basis": "visit", "pages_read": read,
                 'meal': meal or 'all', 'use_type': use_type, 'meal_check': meal_check,
-                "coverage": "observed_all_list_pages" if exhausted and len(items) <= limit and not unverified and not meal_check['unknown_full_visits'] else "partial", "strict_window_count": sum(r["window"] == "in_window" for r in selected),
+                "coverage": "partial" if errors else "observed_all_list_pages" if exhausted and len(items) <= limit else "limited", "strict_window_count": sum(r["window"] == "in_window" for r in selected),
                 "warnings": ["Month-only dates crossing the window are boundary_uncertain."]}}
 
     def review_read(self, target):
@@ -452,6 +487,8 @@ class Tabelog:
             unknown = [r['people'] for r in options if r['hint'] == 'unknown']
             return {'people_options': options, 'selectable_people': available,
                     'selectable_people_ranges': people_ranges(available), 'unknown_people': unknown,
+                    'errors': ([{'code': 'unrecognized_member_status', 'people': unknown,
+                                 'message': 'Party-size options contain unrecognized availability states.'}] if unknown else []),
                     'coverage': 'partial' if unknown else 'returned_options'}
         return self.client.read(endpoint('/en/booking/calendar/find_vacancy_member_by_date/',
                                         {'rst_id': ident, 'svd': day.replace('-', '')}), 'json', parse)
@@ -497,6 +534,8 @@ class Tabelog:
                     if people is not None:
                         option = next((r for r in members['people_options'] if r['people'] == people), None)
                         row['requested_people_hint'] = option['hint'] if option else 'unknown'
+                        if option is None:
+                            row.update(status='unknown', error={'code': 'unverified_people', 'message': 'Requested party size was not returned by the source.'})
                 except CliError as failure:
                     row['error'] = failure.as_dict()
                     stopped = failure.code in STOP_CODES
@@ -504,7 +543,10 @@ class Tabelog:
                         stop_error = failure.as_dict()
             dates.append(row)
         return {'restaurant_id': ident, 'people': people, 'requested_range': {'start': start, 'end': end or start},
-                'calendar': overview, 'dates': dates, 'coverage': 'partial' if any(r['status'] == 'unknown' for r in dates) else 'complete',
+                'calendar': overview, 'dates': dates, 'coverage': 'partial' if error or any(r['status'] == 'unknown' for r in dates) else 'complete',
+                'errors': ([{'scope': 'calendar', **error}] if error else []) +
+                          [{'date': row['date'], **row['error']} for row in dates if row.get('error')] +
+                          [{'date': row['date'], **failure} for row in dates for failure in row.get('errors', [])],
                 'query_plan': {'calendar_error': error, 'member_queries': queries, 'slot_queries': 0},
                 'warning': 'English-channel date and party-size hints only, across all meals. Not verified time slots, seat types or restaurant capacity; omitted sizes are unknown.'}
 
@@ -540,6 +582,7 @@ class Tabelog:
                 'time_options': [{'time': t, 'available_people': sizes, 'people_ranges': people_ranges(sizes)}
                                  for t, sizes in sorted(by_time.items())],
                 'coverage': 'partial' if members['unknown_people'] or any(r['status'] == 'unknown' for r in results) else 'complete',
+                'errors': members.get('errors', []) + [{'people': row['people'], **row['error']} for row in results if row.get('error')],
                 'query_plan': {'member_queries': 1, 'slot_queries': queries},
                 **({'error': error} if error else {}),
                 'warning': 'Only returned selectable party sizes are checked. Ranges are supported party sizes, not a free-seat count or seat-type guarantee.'}
@@ -615,7 +658,11 @@ class Tabelog:
         skipped = sum(d["status"] == "calendar_excluded" for d in dates)
         unknown = sum(d["status"] == "unknown" for d in dates)
         return {"restaurant_id": ident, "people": people, "requested_range": {"start": start, "end": end, "after": after, "before": before, "anchor_time": time}, "calendar": calendar, "dates": dates,
-                "coverage": "partial" if unknown else "complete",
+                "coverage": "partial" if unknown or calendar_error or contradictions else "complete",
+                'errors': ([{'scope': 'calendar', **calendar_error}] if calendar_error else []) +
+                          [{'date': row['date'], **row['error']} for row in dates if row.get('error')] +
+                          [{'date': row['date'], **failure} for row in dates for failure in row.get('errors', [])] +
+                          ([{'code': 'conflicting_inventory', 'dates': contradictions, 'message': 'Calendar and slot responses disagree.'}] if contradictions else []),
                 "coverage_basis": "calendar_screening_and_party_size_slot_verification" if people is None else
                                   "calendar_screening_and_candidate_slot_verification" if skipped else "all_dates_slot_verified",
                 "query_plan": {"strategy": "calendar", "requested_dates": len(days), "planned_slot_queries": planned if people is not None else None,

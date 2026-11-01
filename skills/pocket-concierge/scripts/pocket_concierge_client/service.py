@@ -255,6 +255,9 @@ class PocketConcierge:
                         'min_people': minimum, 'max_people': maximum,
                         'people_match': True if people is not None and minimum is not None and maximum is not None else None,
                         'status': 'waitlist' if is_waitlist else booking_mode, 'unknown': unknown}
+                if unknown:
+                    errors.append({'code': 'unverified_session', 'session_id': session, 'course_id': menu['id'],
+                                   'fields': unknown, 'message': 'Required session fields are missing; eligibility is unknown.'})
                 if is_waitlist:
                     waitlist.append(item)
                 elif unknown:

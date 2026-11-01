@@ -47,14 +47,22 @@ def run(argv, create_client=Client):
             if args.command == 'calendar':
                 for day in data['days']:
                     day['available_time_count'] = len(day.pop('offered_times'))
-        partial = isinstance(data, dict) and data.get('coverage') == 'partial'
+        errors = list(data.get('errors') or []) if isinstance(data, dict) and args.command != 'source' else []
+        for entry in client.trace:
+            if entry.get('status') == 'error':
+                errors.append({'scope': 'request', **entry.get('error', {}), 'url': entry['url']})
+        partial = (isinstance(data, dict) and args.command != 'source' and data.get('coverage') == 'partial') or bool(errors)
+        if partial and not errors:
+            errors.append({'code': 'incomplete_result', 'message': 'Some requested data could not be verified; inspect data for unknown fields.'})
         return {'output': {'status': 'partial' if partial else 'ok', 'command': args.command, 'checked_at': stamp(), 'timezone': 'Asia/Tokyo',
+                           **({'errors': errors} if partial else {}),
                            'data': data, 'usage': client.usage(), 'trace': client.trace}, 'exit_code': 3 if partial else 0}
     except HelpRequested as help_requested:
         return {'help': str(help_requested), 'exit_code': 0}
     except Exception as error:
         if not isinstance(error, CliError):
-            error = CliError('unexpected_response', 'Input or source data was not recognized; no availability inferred.')
+            error = CliError('unexpected_response', 'Input or source data was not recognized; no availability inferred.',
+                             exception_type=type(error).__name__)
         return {'output': {'status': 'error', 'error': error.as_dict(), 'usage': client.usage() if client else None,
                            'trace': client.trace if client else []}, 'exit_code': 1}
     finally:

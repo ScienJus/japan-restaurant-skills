@@ -86,14 +86,25 @@ def run(argv, create_client=Client):
         elif command == 'availability':
             data = app.availability(args.target, start=args.date or args.start, end=args.date or args.end,
                                     people=args.people, time=args.time, after=args.after, before=args.before)
-        partial = data.get('coverage') == 'partial' or command == 'channel' and data.get('error')
+        errors = list(data.get('errors') or []) if command != 'source' else []
+        if command != 'source' and data.get('error'):
+            errors.append(data['error'])
+        for entry in client.trace:
+            if entry.get('status') == 'error':
+                errors.append({'scope': 'request', **{key: entry[key] for key in
+                               ('code', 'message', 'url', 'http_status', 'exception_type') if key in entry}})
+        partial = data.get('coverage') == 'partial' or bool(errors)
+        if partial and not errors:
+            errors.append({'code': 'incomplete_result', 'message': 'Some requested data could not be verified; inspect data for unknown fields.'})
         return {'output': {'status': 'partial' if partial else 'ok', 'command': command,
                            'checked_at': stamp(), 'timezone': 'Asia/Tokyo', 'data': data,
+                           **({'errors': errors} if partial else {}),
                            'usage': client.usage(), 'trace': client.trace}, 'exit_code': 3 if partial else 0}
     except HelpRequested as help_requested:
         return {'help': str(help_requested), 'exit_code': 0}
     except Exception as error:
-        error = error if isinstance(error, CliError) else CliError('unexpected_error', str(error))
+        error = error if isinstance(error, CliError) else CliError('unexpected_error',
+                'Input or source data was not recognized; no availability inferred.', exception_type=type(error).__name__)
         return {'output': {'status': 'error', 'error': error.as_dict(),
                            'usage': client.usage() if client else None,
                            'trace': client.trace if client else []}, 'exit_code': 1}

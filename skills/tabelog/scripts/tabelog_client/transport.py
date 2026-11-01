@@ -146,6 +146,7 @@ class Client:
         except (httpx.HTTPError, CliError, ValueError) as error:
             code = "rate_limited" if status == 429 else "access_denied" if status in (401, 403) else "service_unavailable" if status == 503 else "retry_later" if retry_after(retry) else error.code if isinstance(error, CliError) else "network_error"
             return {"error": code, "message": str(error) if isinstance(error, CliError) else "HTTP retrieval failed; data is unknown.", "http_status": status,
+                    "exception_type": type(error).__name__,
                     "retry_after": retry, "metrics": metrics, "version": version("httpx")}
 
     def read(self, url, format="html", parse=None):
@@ -174,9 +175,10 @@ class Client:
                         code = result["error"]
                         if cooldown and code not in ("rate_limited", "access_denied", "service_unavailable"):
                             code = "retry_later"
-                        raise CliError(code, result.get("message", "Retrieval failed."), **cooldown, **({"http_status": status} if status else {}))
+                        raise CliError(code, result.get("message", "Retrieval failed."), **cooldown, **({"http_status": status} if status else {}),
+                                       **({'exception_type': result['exception_type']} if result.get('exception_type') else {}))
                     public_url(result["url"])
-                    if status >= 400:
+                    if not 200 <= status < 300:
                         code = "rate_limited" if status == 429 else "access_denied" if status in (401, 403) else "service_unavailable" if status == 503 else "retry_later" if cooldown else "http_error"
                         raise CliError(code, f"HTTP {status}; data is unknown.", http_status=status, **cooldown)
                     if re.search(r'<title>\s*(?:Just a moment|Attention Required)|id=["\'](?:challenge-form|cf-challenge-running)|window\._cf_chl_opt', result["body"], re.I):
@@ -200,7 +202,8 @@ class Client:
                     attempt["status"] = "ok"
                 return value
             except Exception as error:
-                e = error if isinstance(error, CliError) else CliError("parse_error", "Parser rejected the response.")
+                e = error if isinstance(error, CliError) else CliError("parse_error", "Parser rejected the response.",
+                                                                     exception_type=type(error).__name__)
                 if e.code in {"rate_limited", "access_denied", "verification_required", "service_unavailable", "retry_later"}:
                     e.details["next_action"] = "Stop this command. Honor retry_not_before. Any real-browser handoff requires explicit authorization."
                     self.blocked = e

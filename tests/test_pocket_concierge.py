@@ -36,6 +36,13 @@ def inventory(slots, venue=None):
 
 
 class PocketConciergeTests(unittest.TestCase):
+    def test_explicit_empty_sessions_are_success(self):
+        transport = client(lambda body, request: inventory([]))
+        result = run(['slots', VENUE['id'], '--date', '2099-12-02'], create_client=lambda **_: transport)
+        self.assertEqual(result['exit_code'], 0)
+        self.assertEqual(result['output']['status'], 'ok')
+        self.assertEqual(result['output']['data']['status'], 'no_matching_session')
+
     def test_slots_preserve_course_session_identity_and_party_ranges_without_enumeration(self):
         def handler(body, request):
             self.assertEqual(request.headers['X-Auth-Origin'], 'GUEST_ORIGIN')
@@ -103,6 +110,23 @@ class PocketConciergeTests(unittest.TestCase):
         self.assertEqual(data['coverage'], 'partial')
         self.assertEqual(data['slots'], [])
         self.assertEqual(data['waitlist'][0]['unknown'], ['seat'])
+        self.assertEqual(result['output']['errors'][0]['code'], 'unverified_session')
+
+    def test_network_failures_include_safe_exception_type_in_cli_and_trace(self):
+        def handler(body, request):
+            raise httpx.ReadTimeout('private source detail must not be echoed')
+        transport = client(handler)
+        result = run(['slots', VENUE['id'], '--date', '2099-12-02'], create_client=lambda **_: transport)
+        self.assertEqual(result['exit_code'], 1)
+        self.assertEqual(result['output']['error']['exception_type'], 'ReadTimeout')
+        self.assertEqual(result['output']['trace'][-1]['error']['exception_type'], 'ReadTimeout')
+        self.assertNotIn('private source detail', json.dumps(result))
+
+    def test_malformed_detail_faq_is_an_error_instead_of_silently_missing_policy(self):
+        transport = client(lambda body, request: {'venue': {**VENUE, 'frequentlyAskedQuestions': ['invalid']}})
+        result = run(['detail', VENUE['id'], '--no-courses'], create_client=lambda **_: transport)
+        self.assertEqual(result['exit_code'], 1)
+        self.assertEqual(result['output']['error']['code'], 'unexpected_response')
 
     def test_people_meal_course_seat_and_reported_start_filters_compose(self):
         transport = client(lambda body, request: inventory([slot(), slot(course={**COURSE, 'id': '124', 'serviceType': 'LUNCH'}), slot(id='701', minPartySize=4)]))

@@ -28,6 +28,21 @@ def make_client(reader):
 
 
 class SearchTests(unittest.TestCase):
+    def test_explicit_empty_map_is_success(self):
+        result = run(['search', '--near', '0,0'], create_client=lambda **_: make_client(
+            lambda _url: map_page(more=False, total=0)))
+        self.assertEqual(result['exit_code'], 0)
+        self.assertEqual(result['output']['status'], 'ok')
+        self.assertEqual(result['output']['data']['items'], [])
+
+    def test_invalid_map_records_are_reported_without_discarding_valid_matches(self):
+        result = run(['search', '--near', '0,0'], create_client=lambda **_: make_client(
+            lambda _url: map_page(marker(1), '<marker id="invalid"/>', more=False, total=2)))
+        self.assertEqual(result['exit_code'], 3)
+        self.assertEqual(result['output']['status'], 'partial')
+        self.assertEqual(result['output']['errors'][0]['code'], 'invalid_records')
+        self.assertEqual(len(result['output']['data']['items']), 1)
+
     def test_cli_prefers_score_to_distance_and_stops_on_first_page(self):
         calls = []
         def read(url):

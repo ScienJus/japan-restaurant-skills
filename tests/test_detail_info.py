@@ -7,6 +7,7 @@ import httpx
 
 from tabelog_client.parsers import parse_detail
 from tablecheck_client.service import TableCheck
+from tablecheck_client.cli import run as tablecheck_run
 from tablecheck_client.transport import Client as TableCheckClient
 from pocket_concierge_client.service import PocketConcierge
 from pocket_concierge_client.transport import Client as PocketClient
@@ -168,3 +169,34 @@ class DetailInfoTests(unittest.TestCase):
         self.assertEqual(result['errors'][0]['code'], 'access_denied')
         self.assertIsNone(result['courses'])
         self.assertEqual(result['slug'], 'sample')
+
+    def test_tablecheck_menu_failures_keep_known_details_and_safe_error_types(self):
+        shop = {'_id': '1'*24, 'slug': 'sample', 'booking_page_mode': 'v1', 'name_translations': [], 'time_zone': 'Asia/Tokyo'}
+        for denied in (False, True):
+            with self.subTest(denied=denied):
+                def handler(request):
+                    if request.url.path == '/v2/shops/sample':
+                        return httpx.Response(200, json={'shops': [shop]})
+                    if request.url.path.endswith('/reserve'):
+                        return httpx.Response(200, text='<div class="reserveform-bookingpolicy-text">Closed Sundays.</div>')
+                    self.assertEqual(request.url.path, '/v2/hub/menu_items')
+                    if denied:
+                        return httpx.Response(403)
+                    raise httpx.ReadTimeout('example-private-transport-message', request=request)
+                transport = TableCheckClient(session=httpx.Client(transport=httpx.MockTransport(handler)), delay_min_ms=0, delay_max_ms=0)
+                result = tablecheck_run(['detail', 'sample', '--from', '2099-12-01', '--to', '2099-12-02'],
+                                        create_client=lambda **_: transport)
+                self.assertEqual(result['exit_code'], 3)
+                output = result['output']
+                self.assertEqual(output['status'], 'partial')
+                self.assertEqual(output['data']['slug'], 'sample')
+                self.assertIsNone(output['data']['courses'])
+                self.assertEqual(output['data']['errors'][0]['scope'], 'courses')
+                self.assertIn('Closed Sundays.', output['data']['practical_info']['reservation']['evidence'][0]['text'])
+                self.assertEqual(output['usage']['network_requests_started'], 3)
+                self.assertNotIn('example-private-transport-message', json.dumps(output))
+                if not denied:
+                    self.assertEqual(output['data']['errors'][0]['exception_type'], 'ReadTimeout')
+                    self.assertEqual(output['trace'][-1]['error']['exception_type'], 'ReadTimeout')
+                else:
+                    self.assertEqual(output['data']['errors'][0]['code'], 'access_denied')

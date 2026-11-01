@@ -28,6 +28,8 @@ Run requests serially with default same-site delays. Separate processes share no
 
 Inspect `status`, `error`, coverage, `unverified`, and `trace` before answering. Success does not imply exhaustive coverage. Missing or inaccessible data remains unknown; do not silently relax filters, expand scope, or treat errors as no results.
 
+Exit codes are `0` for `ok`, `3` for `partial`, and `1` for `error`. Every partial result includes top-level `errors`; report their causes alongside known results. Recovered request failures still return partial. Missing required evidence and unread course pages are partial; a failed course read has `courses.items=null`, not an empty menu. Normal page/result caps use `coverage=limited` and are not failures. Optional absent source fields may stay null.
+
 Use Asia/Tokyo dates/times and respond in the user's language, retaining Japanese restaurant names. Link restaurants and sources; state location/radius, filters, query time, and coverage. Compare only supported facts such as overall rating, cuisines, distance, meal budgets, hours, and observed awards. Do not substitute sample review scores for overall ratings, straight-line distance for walking distance, or published hours for confirmed seats.
 
 Explain execution as actual CLI commands, underlying sources/formats, external dependencies, and measured `usage`. See [costs.md](references/costs.md). Do not rerun queries just to explain them or invent unmeasured costs. For recent-review questions, summarize the actual sample rather than returning raw JSON alone.

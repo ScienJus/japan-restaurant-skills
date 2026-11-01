@@ -46,7 +46,7 @@ class ReviewMealTests(unittest.TestCase):
                 calls.append(url)
                 self.assertEqual(parse_qs(urlsplit(url).query)['use_type'], [code])
                 return row(meal=meal if meal in ('lunch', 'dinner') else 'dinner')
-            args = ['reviews', URL, '--since', '2020-10-01', '--until', '2020-10-29', '--pages', '1']
+            args = ['reviews', URL, '--since', '2020-10-01', '--until', '2020-10-31', '--pages', '1']
             if meal:
                 args += ['--meal', meal]
             result = run(args, create_client=lambda **kw: client(read))
@@ -54,6 +54,14 @@ class ReviewMealTests(unittest.TestCase):
             self.assertEqual(len(calls), 1)
             self.assertEqual(result['output']['data']['meta']['meal'], meal or 'all')
             self.assertEqual(len(result['output']['data']['items']), 1)
+
+    def test_wrong_review_page_is_an_error_instead_of_source_exhaustion(self):
+        body = row()+'<b class="c-pagination__num is-current">1</b><a class="c-pagination__num">2</a>'
+        result = run(['reviews', URL, '--since', '2020-10-01', '--until', '2020-10-31', '--pages', '2'],
+                     create_client=lambda **_: client(lambda _url: body))
+        self.assertEqual(result['exit_code'], 1)
+        self.assertEqual(result['output']['status'], 'error')
+        self.assertEqual(result['output']['error']['code'], 'unexpected_response')
 
     def test_mismatched_or_unknown_list_meal_never_counts_as_matching(self):
         app = Tabelog(client(lambda u: row(meal='dinner')+row(2, None)+row(3, 'lunch')))

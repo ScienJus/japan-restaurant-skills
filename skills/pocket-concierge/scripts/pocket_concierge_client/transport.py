@@ -107,8 +107,9 @@ class Client:
                 self.cache[key] = value['data']
                 entry['status'] = 'ok'
                 return deepcopy(value['data'])
-        except (httpx.HTTPError, ValueError):
-            error = CliError('source_error', 'Source request or JSON decoding failed; inventory is unknown.')
+        except (httpx.HTTPError, ValueError) as failure:
+            error = CliError('source_error', 'Source request or JSON decoding failed; inventory is unknown.',
+                             exception_type=type(failure).__name__, timeout_seconds=self.timeout)
             entry['error'] = error.as_dict()
             raise error from None
         except CliError as error:

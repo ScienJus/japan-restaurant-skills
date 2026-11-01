@@ -151,7 +151,9 @@ class FilterTests(unittest.TestCase):
             return '<markers><srchinfo cnt="60" nextpg="2"/>'+rows+'</markers>'
         result = run(['search','--near','0,0','--budget-meal','lunch','--budget-max','5000','--limit','1','--pages','10'],
                      create_client=lambda **kw: client(read))
-        self.assertEqual(result['output']['status'], 'ok')
+        self.assertEqual(result['output']['status'], 'partial')
+        self.assertEqual(result['exit_code'], 3)
+        self.assertEqual(result['output']['errors'][0]['code'], 'unverified_candidates')
         data = result['output']['data']
         self.assertEqual([r['id'] for r in data['items']], ['17000003'])
         self.assertEqual(len(data['unverified']), 2)
@@ -267,3 +269,19 @@ class CourseTests(unittest.TestCase):
         self.assertEqual(r['exit_code'], 3)
         self.assertEqual(r['output']['data']['name'], '店')
         self.assertEqual(r['output']['data']['courses']['coverage'], 'unknown')
+        self.assertIsNone(r['output']['data']['courses']['items'])
+        self.assertEqual(r['output']['errors'][0]['scope'], 'courses')
+
+    def test_missing_course_markup_and_unread_course_pages_are_explicit_failures(self):
+        for course_body, code in [
+            (f'<link rel="canonical" href="{URL}party/">', 'unverified_courses'),
+            ((FIXTURES/'ecoutieres-courses.html').read_text()+'<a class="c-pagination__num">2</a>', 'incomplete_courses'),
+        ]:
+            with self.subTest(code=code):
+                def read(url):
+                    return course_body if '/party/' in url else '<script type="application/ld+json">{"@type":"Restaurant","name":"店"}</script>'
+                result = run(['detail', URL], create_client=lambda **_: client(read))
+                self.assertEqual(result['exit_code'], 3)
+                self.assertEqual(result['output']['status'], 'partial')
+                self.assertEqual(result['output']['errors'][0]['code'], code)
+                self.assertEqual(result['output']['data']['name'], '店')

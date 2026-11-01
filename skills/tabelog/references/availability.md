@@ -36,6 +36,6 @@ Single-date availability with a fixed party always checks actual slots; without 
 - `calendar_excluded`: overview evidence only; `offered_times=null` means no slot request was made.
 - `ok`: the required member/slot checks completed; `matching_times` applies the requested time window. When no size is selectable, no slot checks are needed; inspect `verification`, `people_results`, and `query_plan`.
 - `unknown`: failed or not queried; `matching_times=null` does not mean no seats.
-- `coverage=complete`: every date has overview-exclusion or the required member/slot evidence for returned sizes. `query_plan` and `coverage_basis` distinguish them; contradictions require verification. This does not establish full restaurant inventory.
+- `coverage=complete`: every date has overview-exclusion or the required member/slot evidence for returned sizes, with no request failures or calendar/slot contradictions. A failed overview followed by successful slot reads retains the known slots but returns partial with errors. `query_plan` and `coverage_basis` distinguish the evidence; complete does not establish full restaurant inventory.
 
 Report party size, dates, available times, sources, observation time, and unknowns. Empty slots describe this online response, not all restaurant inventory. Sequential responses are snapshots and do not hold seats. Availability checks need no personal information and must not submit reservations, accept binding terms, or pay. Follow the [request policy](access.md#request-policy).

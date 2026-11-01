@@ -4,6 +4,8 @@ from urllib.parse import parse_qsl, urlsplit
 
 from bs4 import BeautifulSoup
 
+from .transport import CliError
+
 
 def practical_info(venue, booking_url, page=None):
     source = f"https://production.tablecheck.com/v2/shops/{venue['slug']}"
@@ -16,6 +18,8 @@ def practical_info(venue, booking_url, page=None):
             policies.append({'field': 'public_form.notice', 'text': notice.decode_contents(), 'source_url': booking_url})
     for policy in policies:
         if not isinstance(policy.get('text'), str):
+            if policy.get('text') is not None:
+                raise CliError('unexpected_response', 'Published reservation policy text is invalid.')
             continue
         text = re.sub(r'<br\s*/?>', '\n', policy['text'], flags=re.I)
         text = re.sub(r'</(?:p|div|li)>', '\n\n', text, flags=re.I)

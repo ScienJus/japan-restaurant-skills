@@ -7,6 +7,8 @@ description: "Find Japanese restaurants on Pocket Concierge, read courses and co
 
 Use `bin/pocket-concierge` at the repository root, or `python scripts/pocket_concierge.py` in a standalone skill. Read command-specific `--help`. All requests use the CLI's fixed guest GraphQL queries; no login, API key, Node.js or browser is needed. Do not invent raw HTTP queries or booking operations.
 
+Check both JSON `status` and the exit code: `0` means `ok`, `3` means `partial` with top-level `errors`, and `1` means `error` with an `error`. Report the failure causes alongside known results. Missing required session fields, malformed source data and failed requests must not become an empty menu/no sessions or a success. Normal page/result limits use `coverage=limited`; optional absent source fields may remain null.
+
 ## Setup
 
 Reuse the repository Python environment and run `bin/pocket-concierge doctor` without network requests. For standalone installation, create a Python 3.10+ virtual environment (3.12+ recommended), install `scripts/requirements.txt`, and run `python scripts/pocket_concierge.py doctor`. HTTPX is the only direct runtime dependency. The skill includes its [MIT License](LICENSE).

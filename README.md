@@ -46,6 +46,8 @@ Pocket Concierge returns party-size bounds directly for each session; `--people`
 
 Each platform's `detail` includes `practical_info`: published reservation, payment and child-policy evidence, plus listed website/booking links. Missing information stays unknown; details do not verify seats, child eligibility or every possible booking channel. These fields reuse existing requests; TableCheck adds one public-form read when v1 notices are missing from its API.
 
+All CLIs return JSON and an exit code: `0` for `status=ok`, `3` for `status=partial` with known data and top-level `errors`, and `1` for `status=error` with an `error`. Request failures, required-field parsing failures and incomplete verification must not be reported as success or an empty menu/no seats. A recovered request failure still returns partial. Normal page/result caps use `coverage=limited` and do not themselves cause an error. Optional information absent from the source stays null; inspect each query's scope and coverage.
+
 ## Local setup
 
 Requires Python 3.10+ (3.12+ recommended), HTTPX, Beautiful Soup, and jpholiday. No Node.js or browser dependency.

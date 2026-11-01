@@ -121,8 +121,11 @@ class Client:
         except CliError as error:
             entry['error'] = error.as_dict()
             raise
-        except httpx.HTTPError:
-            raise CliError('network_error', 'HTTP retrieval failed; data is unknown.') from None
+        except httpx.HTTPError as failure:
+            error = CliError('network_error', 'HTTP retrieval failed; data is unknown.',
+                             exception_type=type(failure).__name__, timeout_seconds=self.timeout)
+            entry['error'] = error.as_dict()
+            raise error from None
         finally:
             self.finished = time.monotonic()
             entry['elapsed_ms'] = round((self.finished-started)*1000)

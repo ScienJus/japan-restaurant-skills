@@ -103,8 +103,13 @@ class TableCheck:
                     result['courses'] = None
                 return result
         if include_courses:
-            result['courses'] = self.courses(target, start, end, meal=meal, course=course)['items']
             result['course_window'] = {'from': start, 'to': end, 'scope': 'listed_conditions_not_slot_inventory'}
+            try:
+                result['courses'] = self.courses(target, start, end, meal=meal, course=course)['items']
+            except CliError as error:
+                if error.code in ('invalid_argument', 'not_found'):
+                    raise
+                result.update(courses=None, coverage='partial', errors=[{'scope': 'courses', **error.as_dict()}])
         return result
 
     @staticmethod
@@ -124,13 +129,14 @@ class TableCheck:
                 'date_min': datetime.combine(date.fromisoformat(start), time(), tzinfo=tz).astimezone(timezone.utc).isoformat(),
                 'date_max': datetime.combine(date.fromisoformat(end)+timedelta(days=1), time(), tzinfo=tz).astimezone(timezone.utc).isoformat()}
         menus = array(self.client.read('POST', '/v2/hub/menu_items', body=body), 'menu_items')
+        if any(not isinstance(item, dict) or not isinstance(item.get('id'), str)
+               or not re.fullmatch(r'[0-9a-f]{24}', item['id']) for item in menus):
+            raise CliError('unexpected_response', 'Menu identity is missing or invalid; an empty menu is not inferred.')
         if course and not any(item.get('id') == course for item in menus):
             raise CliError('not_found', 'Course not returned for this restaurant and date window.')
         items = []
         for item in menus:
             if course and item.get('id') != course:
-                continue
-            if meal and item.get('meals') and meal not in item['meals']:
                 continue
             eligibility = {day: self.course_date(item, day, meal) for day in wanted}
             if all(state is False for state in eligibility.values()):
@@ -150,15 +156,38 @@ class TableCheck:
 
     @staticmethod
     def course_date(item, day, meal=None):
+        for field in ('is_active', 'is_hidden', 'is_holiday', 'is_before_holiday'):
+            if item.get(field) is not None and type(item[field]) is not bool:
+                raise CliError('unexpected_response', 'Course eligibility flag is invalid.', field=field)
+        for field in ('meals', 'days'):
+            values = item.get(field)
+            if values is not None and (not isinstance(values, list) or any(not isinstance(value, str) for value in values)):
+                raise CliError('unexpected_response', 'Course eligibility list is invalid.', field=field)
+        weekdays = item.get('days')
+        if weekdays and any(value not in ('m', 'tu', 'w', 'th', 'f', 'sa', 'su') for value in weekdays):
+            raise CliError('unexpected_response', 'Course weekday code is not recognized.')
+        ranges = item.get('valid_date_ranges')
+        if ranges is not None:
+            try:
+                if not isinstance(ranges, list):
+                    raise ValueError()
+                for entry in ranges:
+                    if not isinstance(entry, dict):
+                        raise ValueError()
+                    for field in ('start_date', 'end_date'):
+                        if entry.get(field) not in (None, '') and date.fromisoformat(entry[field]).isoformat() != entry[field]:
+                            raise ValueError()
+                    if entry.get('start_date') and entry.get('end_date') and entry['start_date'] > entry['end_date']:
+                        raise ValueError()
+            except (ValueError, TypeError):
+                raise CliError('unexpected_response', 'Course date range is invalid.') from None
         if item.get('is_active') is False or item.get('is_hidden') is True:
             return False
         if meal and item.get('meals') and meal not in item['meals']:
             return False
-        ranges = item.get('valid_date_ranges')
         if ranges and not any((not entry.get('start_date') or day >= entry['start_date']) and
                               (not entry.get('end_date') or day <= entry['end_date']) for entry in ranges):
             return False
-        weekdays = item.get('days')
         if weekdays and ['m', 'tu', 'w', 'th', 'f', 'sa', 'su'][date.fromisoformat(day).weekday()] not in weekdays:
             return None if item.get('is_holiday') or item.get('is_before_holiday') else False
         return True
@@ -258,9 +287,12 @@ class TableCheck:
                     cal = raw.get('availability_calendar') if isinstance(raw, dict) else None
                     if not isinstance(cal, dict) or cal.get('type') != 'success' or not isinstance(cal.get('data'), dict) or cal.get('time_zone') != venue['time_zone']:
                         raise CliError('unexpected_response', 'Calendar status, data or time zone is not recognized.')
-                    closed = cal.get('closed_dates') or []
+                    closed = cal.get('closed_dates', [])
                     if not isinstance(closed, list) or any(not isinstance(day, str) for day in closed):
                         raise CliError('unexpected_response', 'Calendar closed-date list is not recognized.')
+                    alternates = cal.get('alternate_timeslots', {})
+                    if not isinstance(alternates, dict):
+                        raise CliError('unexpected_response', 'Calendar alternate times are not recognized.')
                     for day in wanted:
                         row = rows[day]
                         if day in closed:
@@ -280,7 +312,7 @@ class TableCheck:
                                     raise ValueError()
                                 local = at.astimezone(tz)
                                 available = state.get('is_available') if isinstance(state, dict) else None
-                                if local.date().isoformat() != day or type(available) is not bool:
+                                if local.date().isoformat() != day or local.second or local.microsecond or type(available) is not bool:
                                     raise ValueError()
                                 minute = local.hour*60+local.minute
                                 observed.append(minute)
@@ -288,6 +320,8 @@ class TableCheck:
                                     row['offered_times'].append(local.strftime('%H:%M'))
                             except (ValueError, TypeError, AttributeError):
                                 complete = False
+                                failures.append({'code': 'unexpected_response', 'date': day,
+                                                 'message': 'Calendar slot timestamp or availability state is invalid.'})
                         lower, upper = max(lo, anchor-120), min(hi, anchor+120)
                         expected = {minute for minute in range(anchor-120, anchor+121, 30) if lo <= minute <= hi}
                         complete = complete and bool(expected) and expected.issubset(set(observed))
@@ -296,16 +330,22 @@ class TableCheck:
                             row['coverage'].append({'anchor': clock, 'from': f'{lower//60:02}:{lower%60:02}', 'to': f'{upper//60:02}:{upper%60:02}'})
                         # Alternate times are positive suggestions; they do not
                         # establish that missing times or dates were checked.
-                        for timestamp in (cal.get('alternate_timeslots') or {}).get(day, []):
+                        alternate_values = alternates.get(day, [])
+                        if not isinstance(alternate_values, list):
+                            raise CliError('unexpected_response', 'Calendar alternate times must be an array.', date=day)
+                        for timestamp in alternate_values:
                             try:
                                 alternate = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
                                 if alternate.tzinfo is None:
                                     raise ValueError()
                                 local = alternate.astimezone(tz)
-                                if local.date().isoformat() == day and after <= local.strftime('%H:%M') <= before and not_elapsed_today(local):
+                                if local.date().isoformat() != day or local.second or local.microsecond:
+                                    raise ValueError()
+                                if after <= local.strftime('%H:%M') <= before and not_elapsed_today(local):
                                     row['offered_times'].append(local.strftime('%H:%M'))
-                            except (ValueError, TypeError):
-                                pass
+                            except (ValueError, TypeError, AttributeError):
+                                failures.append({'code': 'unexpected_response', 'date': day,
+                                                 'message': 'Calendar alternate slot timestamp is invalid.'})
                 except CliError as error:
                     failures.append(error.as_dict())
                     break
@@ -313,11 +353,17 @@ class TableCheck:
             row['offered_times'] = sorted(set(row['offered_times']))
             full = len({item['anchor'] for item in row['coverage']}) == len(set(anchors))
             row['complete'] = full
+            if not full:
+                row['error'] = {'code': 'incomplete_coverage', 'message': 'Required calendar dates or time-grid states were not returned.'}
             if row['offered_times']:
                 row['status'] = 'available'
             elif row['status'] != 'closed' and full:
                 row['status'] = 'unavailable'
             row['booking_url'] = booking_url(venue, row['date'], row['offered_times'][0] if row['offered_times'] else None, people)
+        missing_dates = [day for day, row in rows.items() if not row['complete']]
+        if missing_dates:
+            failures.append({'code': 'incomplete_coverage', 'dates': missing_dates,
+                             'message': 'Required calendar dates or time-grid states were not returned; these dates remain incomplete.'})
         return {'restaurant': venue_summary(venue), 'people': people, 'from': start, 'to': end, 'after': after, 'before': before,
                 'scope': 'venue', 'course_linked': False, 'seat_linked': False, 'days': list(rows.values()),
                 'coverage_basis': 'returned_calendar_grid_and_closed_dates',
@@ -435,14 +481,18 @@ class TableCheck:
                     raise CliError('unexpected_response', 'Timetable lacks matching queried_date and slot data.')
                 gained = False
                 for slot_day, slots in all_slots.items():
-                    if slot_day not in rows or rows[slot_day]['complete'] or not isinstance(slots, dict) or not slots:
+                    if slot_day not in rows or rows[slot_day]['complete']:
+                        continue
+                    if not isinstance(slots, dict) or not slots:
+                        failures.append({'code': 'unexpected_response', 'date': slot_day,
+                                         'message': 'Timetable date has no recognizable slot grid.'})
                         continue
                     row = rows[slot_day]
                     parsed, complete = [], True
                     for epoch, slot in slots.items():
                         try:
                             local = datetime.fromtimestamp(int(epoch), tz)
-                            if local.date().isoformat() != slot_day or not isinstance(slot, dict) or type(slot.get('available')) is not bool:
+                            if local.date().isoformat() != slot_day or local.second or local.microsecond or not isinstance(slot, dict) or type(slot.get('available')) is not bool:
                                 raise ValueError()
                             clock = local.strftime('%H:%M')
                             if after <= clock <= before and slot['available'] and not_elapsed_today(local):
@@ -450,6 +500,8 @@ class TableCheck:
                         except (ValueError, TypeError, OverflowError, OSError):
                             complete = False
                     if not complete:
+                        failures.append({'code': 'unexpected_response', 'date': slot_day,
+                                         'message': 'Timetable slot timestamp or availability state is invalid.'})
                         continue
                     gained = True
                     row.update(complete=not parsed, status='unknown' if parsed else 'unavailable', source='filtered_timetable')
@@ -476,6 +528,10 @@ class TableCheck:
         for day, row in rows.items():
             row['offered_times'] = sorted(set(row['offered_times']))
             row['booking_url'] = booking_url(venue, day, row['offered_times'][0] if row['offered_times'] else None, people)
+        missing_dates = [day for day, row in rows.items() if not row['complete']]
+        if missing_dates:
+            failures.append({'code': 'incomplete_coverage', 'dates': missing_dates,
+                             'message': 'Filtered timetable or slot confirmation did not cover these dates.'})
         return {'restaurant': venue_summary(venue), 'from': wanted[0], 'to': wanted[-1], 'people': people, 'after': after, 'before': before,
                 'course_id': course, 'seat_category_id': selected_seat, 'scope': 'filtered_reservation_form',
                 'course_linked': bool(course), 'seat_linked': bool(selected_seat), 'days': list(rows.values()),
@@ -512,11 +568,15 @@ class TableCheck:
                 meta = response.get('meta')
                 if not isinstance(meta, dict):
                     raise CliError('unexpected_response', 'Search pagination metadata missing.')
+                new = 0
                 for shop in shops:
                     slug = shop.get('slug')
-                    if not slug or slug in seen:
+                    if not isinstance(slug, str) or not re.fullmatch(r'[a-z0-9][a-z0-9-]{0,80}', slug):
+                        raise CliError('unexpected_response', 'Search restaurant identity is missing or invalid.')
+                    if slug in seen:
                         continue
                     seen.add(slug)
+                    new += 1
                     if cuisines and not all(c in (shop.get('cuisines') or []) for c in cuisines):
                         continue
                     geocode = shop.get('geocode') or {}
@@ -528,15 +588,21 @@ class TableCheck:
                         delta = math.radians(shop_lon-lon)
                         distance = 6371000*2*math.asin(min(1, math.sqrt(math.sin((phi2-phi1)/2)**2+math.cos(phi1)*math.cos(phi2)*math.sin(delta/2)**2)))
                     except (KeyError, TypeError, ValueError):
+                        failures.append({'restaurant': slug, 'code': 'unverified_distance',
+                                         'message': 'Missing or invalid coordinates; radius eligibility is unknown.'})
                         continue
                     if distance > radius:
                         continue
                     if budget_min is not None or budget_max is not None:
                         try:
                             price = Decimal(shop['budget_dinner_avg'])
-                            if not price.is_finite() or budget_min is not None and price < budget_min or budget_max is not None and price > budget_max:
+                            if not price.is_finite() or price < 0:
+                                raise InvalidOperation()
+                            if budget_min is not None and price < budget_min or budget_max is not None and price > budget_max:
                                 continue
                         except (KeyError, TypeError, InvalidOperation):
+                            failures.append({'restaurant': slug, 'code': 'unverified_budget',
+                                             'message': 'Missing or invalid dinner budget; budget eligibility is unknown.'})
                             continue
                     item = venue_summary(shop)
                     item['distance_m'] = round(distance)
@@ -550,12 +616,20 @@ class TableCheck:
                         item['availability'] = inventory
                     if with_courses:
                         first = start or datetime.now(ZoneInfo('Asia/Tokyo')).date().isoformat()
-                        item['courses'] = self.courses(slug, first, end or first, meal=meal, _venue=shop)['items']
+                        try:
+                            item['courses'] = self.courses(slug, first, end or first, meal=meal, _venue=shop)['items']
+                        except CliError as error:
+                            item.update(courses=None, coverage='partial', errors=[{'scope': 'courses', **error.as_dict()}])
+                            failures.append({'restaurant': slug, 'scope': 'courses', **error.as_dict()})
                     results.append(item)
-                    if len(results) >= limit:
+                    if len(results) >= limit or self.client.blocked:
                         break
+                if self.client.blocked:
+                    break
                 if len(results) >= limit:
                     break
+                if shops and not new:
+                    raise CliError('unexpected_response', 'Search repeated previously returned restaurants; stopping pagination.')
                 cursor = meta.get('search_after')
                 if meta.get('last_page') is True or not shops:
                     exhausted = True

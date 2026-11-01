@@ -416,8 +416,20 @@ class AvailabilityTests(unittest.TestCase):
         app,urls=self.make_app(overview)
         r=app.availability('16010357',start='2099-01-01',end='2099-01-03',people=2)
         self.assertEqual(len(urls),4)
-        self.assertEqual(r['coverage'],'complete')
+        self.assertEqual(r['coverage'],'partial')
         self.assertEqual(r['query_plan']['calendar_error']['code'],'unexpected_response')
+        self.assertEqual(r['query_plan']['slot_verified_dates'], 3)
+        self.assertEqual(r['errors'][0]['scope'], 'calendar')
+
+    def test_recovered_calendar_failure_still_returns_nonzero_with_known_slots(self):
+        overview = [{'year': 2099, 'month': 1, 'day': 1, 'available': code} for code in (0, 2)]
+        app, urls = self.make_app(overview, ['18:00'])
+        result = run(['availability', '16010357', '--date', '2099-01-01', '--people', '2'],
+                     create_client=lambda **_: app.client)
+        self.assertEqual(result['exit_code'], 3)
+        self.assertEqual(result['output']['status'], 'partial')
+        self.assertEqual(result['output']['data']['dates'][0]['offered_times'], ['18:00'])
+        self.assertEqual(result['output']['errors'][0]['code'], 'unexpected_response')
 
     def test_empty_calendar_queries_all_dates(self):
         app,urls=self.make_app([])

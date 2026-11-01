@@ -114,7 +114,7 @@ bin/tabelog slots 17013984 --date 2026-12-01
 
 ## Results and request costs
 
-Commands emit JSON except help. Inspect `status`, `data`, coverage, `unverified`, `error`, `usage`, and `trace`. Exit codes are 0 for success, 3 for partial results, and 1 for errors. Successful execution does not imply every field or every restaurant was verified.
+Commands emit JSON except help. Exit codes are 0 for `status=ok`, 3 for `status=partial` with top-level `errors`, and 1 for `status=error` with an `error`. Request failures remain partial even after a successful fallback. Missing required evidence and parsing failures are reported; failed course reads use `courses.items=null`, not an empty array. Normal page/result caps use `coverage=limited`. Inspect `data`, coverage, `unverified`, `usage`, and `trace`; successful execution does not imply exhaustive results or every optional field was published.
 
 `detail.practical_info` groups `reservation`, `payment`, `children` and `links`, retaining source wording and URLs alongside the original `info`. Recognized reservation headlines and standalone payment flags are normalized; missing or ambiguous values stay null. Read all evidence, including qualifiers and remarks. Card rejection does not establish cash-only payment. Listed booking entries are not slot checks, websites are not verified booking channels, and child policies are not mixed-age inventory checks. These fields add no requests and do not follow external links.
 

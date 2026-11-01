@@ -176,14 +176,15 @@ def parse_hours(doc):
 
 
 def parse_detail(body, ref, url):
-    doc, ld, info = soup(body), {}, []
+    doc, ld, info, errors = soup(body), {}, [], []
     for script in doc.select('script[type="application/ld+json"]'):
         try:
             value = json.loads(script.string or script.get_text())
             blocks = value if isinstance(value, list) else value.get("@graph", [value])
             ld = next((b for b in blocks if isinstance(b, dict) and (b.get("@type") == "Restaurant" or isinstance(b.get("@type"), list) and "Restaurant" in b["@type"])), ld)
         except (ValueError, TypeError, AttributeError):
-            continue
+            errors.append({'scope': 'structured_detail', 'code': 'unexpected_response',
+                           'message': 'Restaurant structured data could not be parsed; HTML fields are retained.'})
     tables = doc.select(".rstinfo-table tr, .rstinfo-table__table tr")
     if tables:
         for row in tables:
@@ -213,7 +214,10 @@ def parse_detail(body, ref, url):
         geo = ld.get("geo", {})
         result.update(point_value([geo.get("latitude"), geo.get("longitude")]), coordinate_source=url)
     except CliError:
-        pass
+        if ld.get('geo'):
+            errors.append({'scope': 'coordinates', 'code': 'unexpected_response', 'message': 'Published restaurant coordinates are invalid.'})
+    if errors:
+        result.update(coverage='partial', errors=errors)
     return result
 
 
@@ -252,17 +256,27 @@ def parse_courses(body, ref, url):
     empty = bool(re.search(r'コース(?:情報)?(?:は|が)(?:登録されていません|ありません)|no courses', text_of(doc), re.I))
     if not items and not identity and not doc.select_one('.rdheader-rstname'):
         raise CliError('unexpected_response', 'Unrecognized restaurant course page; empty inventory is not established.')
-    return {'items': items, 'source_url': url, 'coverage': 'partial' if pager['last'] and pager['last'] > 1 else
+    errors = []
+    if pager['last'] and pager['last'] > 1:
+        errors.append({'code': 'incomplete_courses', 'message': 'Only the first course page was read; more course pages are listed.'})
+    if not items and not empty:
+        errors.append({'code': 'unverified_courses', 'message': 'No course cards or explicit empty-menu notice were recognized.'})
+    return {'items': items if items or empty else None, 'source_url': url, 'errors': errors, 'coverage': 'partial' if pager['last'] and pager['last'] > 1 else
             'listed_courses' if items else 'explicit_empty' if empty else 'not_listed',
             'warning': 'Published course summaries only; menus, dates and prices may have conditions. No seat inventory was queried.'}
 
 
 def parse_cards(body):
-    doc, items = soup(body), []
+    doc, items, invalid = soup(body), [], 0
     for card in doc.select(".list-rst"):
         anchor = card.select_one(".list-rst__rst-name-target")
         ident, url = card.get("data-rst-id"), card.get("data-detail-url") or (anchor.get("href") if anchor else None)
         if not ident or not url or not text_of(anchor):
+            invalid += 1
+            continue
+        match = RESTAURANT_PATH.search(urlsplit(urljoin(BASE, url)).path)
+        if urlsplit(urljoin(BASE, url)).hostname != 'tabelog.com' or not match or match[2] != ident:
+            invalid += 1
             continue
         genre = pick(card, ".list-rst__area-genre") or ""
         budgets = {}
@@ -277,7 +291,7 @@ def parse_cards(body):
     count = {"from": counts[0] if len(counts) > 0 else None, "to": counts[1] if len(counts) > 1 else None, "total": counts[2] if len(counts) > 2 else None}
     if len(counts) == 2 and doc.select_one(".rstlist-notfound"):
         count = {"from": 0, "to": 0, "total": 0}
-    return {"items": items, "count": count, "pagination": pagination(doc)}
+    return {"items": items, "invalid": invalid, "count": count, "pagination": pagination(doc)}
 
 
 def _review_fields(node, detail=False):
@@ -294,7 +308,7 @@ def parse_reviews(body, page):
     doc = soup(body)
     pager = pagination(doc)
     if pager["current"] is not None and pager["current"] != page:
-        return {"items": [], "lastPage": pager["last"], "note": "Requested page does not exist."}
+        raise CliError('unexpected_response', 'Review pagination does not match the requested page; remaining reviews are unknown.')
     items = []
     for node in doc.select(".rvw-item.js-rvw-item-clickable-area"):
         clone = copy.deepcopy(node)
